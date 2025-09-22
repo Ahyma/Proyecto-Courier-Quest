@@ -103,7 +103,7 @@ pygame.quit()
 import pygame
 import os
 from api.api_handler import get_map_data, get_jobs_data, get_weather_data
-from courier import Courier
+from courier_quest.src.game.courier import Courier
 
 # Obtener los datos del mapa al inicio del programa
 map_data = get_map_data()
