@@ -41,6 +41,36 @@ def load_building_images():
 
     return building_images
 
+def load_street_images(tile_size):
+    """
+    Carga y devuelve un diccionario de imágenes de calles para autotiling.
+    """
+    street_images = {}
+    image_names = {
+        "centro": "calle_centro.png",
+        "horizontal": "calle_horizontal.png",
+        "vertical": "calle_vertical.png",
+        "borde_arriba": "calle_borde_arriba.png",
+        "borde_abajo": "calle_borde_abajo.png",
+        "borde_izquierda": "calle_borde_izquierda.png",
+        "borde_derecha": "calle_borde_derecha.png",
+        "esquina_arriba_izquierda": "calle_esquina_arriba_izquierda.png",
+        "esquina_arriba_derecha": "calle_esquina_arriba_derecha.png",
+        "esquina_abajo_izquierda": "calle_esquina_abajo_izquierda.png",
+        "esquina_abajo_derecha": "calle_esquina_abajo_derecha.png",
+    }
+    
+    for key, filename in image_names.items():
+        try:
+            image_path = os.path.join("images", filename)
+            image = pygame.image.load(image_path).convert_alpha()
+            street_images[key] = pygame.transform.scale(image, (tile_size, tile_size))
+        except pygame.error as e:
+            print(f"Error al cargar la imagen de calle {filename}: {e}")
+            street_images[key] = None
+    
+    return street_images
+
 def main():
     
     #Función principal que ejecuta el bucle de juego
@@ -80,7 +110,12 @@ def main():
     if not building_images:
         print("No se pudieron cargar las imágenes de edificios. Saliendo del juego.")
         sys.exit()
-    print("Contenido del diccionario building_images:", building_images) # Agrega esta línea
+
+    # ---- Cargar las imágenes de calles ----
+    street_images = load_street_images(TILE_SIZE)
+    if not street_images:
+        print("No se pudieron cargar las imágenes de calles. Saliendo del juego.")
+        sys.exit()
 
     # ---- Cargar la imagen del césped ----
     try:
@@ -89,17 +124,14 @@ def main():
     except pygame.error as e:
         print(f"Error al cargar la imagen del césped: {e}")
         cesped_image = None
-    
-    # ---- Cargar la imagen de la calle ----
-    try:
-        calle_image = pygame.image.load(os.path.join("images", "calle.png")).convert_alpha()
-        calle_image = pygame.transform.scale(calle_image, (TILE_SIZE, TILE_SIZE))
-    except pygame.error as e:
-        print(f"Error al cargar la imagen de la calle: {e}")
-        calle_image = None
 
     # Inicializar el mundo del juego y el repartidor
-    game_world = World(map_data=map_data, building_images=building_images, grass_image=cesped_image, street_image=calle_image)
+    game_world = World(
+        map_data=map_data, 
+        building_images=building_images, 
+        grass_image=cesped_image, 
+        street_images=street_images
+    )
     courier = Courier(start_x=0, start_y=0, image=repartidor_image)
 
     running = True
