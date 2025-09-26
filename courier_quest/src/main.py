@@ -7,6 +7,8 @@ from api.cache import APICache
 from game.courier import Courier
 from game.world import World
 from game.constants import TILE_SIZE
+from game.weather_manager import WeatherManager
+from game.weather_visuals import WeatherVisuals
 
 def load_building_images():
     """
@@ -82,6 +84,13 @@ def main():
         print("No se pudo cargar el mapa. Saliendo del juego.")
         sys.exit()
 
+     # Carga los datos del clima e inicializa el manejador
+    weather_data = api_client.get_weather_data()
+    if not weather_data:
+        print("No se pudieron cargar los datos del clima. Saliendo del juego.")
+        sys.exit()
+    weather_manager = WeatherManager(weather_data)
+
     map_info = map_data.get('data', {})
     map_width = map_info.get('width', 0)
     map_height = map_info.get('height', 0)
@@ -96,6 +105,10 @@ def main():
     pygame.init()
     screen = pygame.display.set_mode((screen_width, screen_height))
     pygame.display.set_caption("Courier Quest")
+
+    clock = pygame.time.Clock()
+    #weather_visuals = WeatherVisuals(screen.get_size())
+    weather_visuals = WeatherVisuals(screen.get_size(), TILE_SIZE)
 
     # ---- Cargar la imagen del repartidor ----
     try:
@@ -136,6 +149,12 @@ def main():
 
     running = True
     while running:
+        # Tiempo en segundos desde el último frame
+        delta_time = clock.tick(60) / 1000.0
+
+        # Actualiza el clima
+        weather_manager.update(delta_time)
+
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
@@ -150,12 +169,25 @@ def main():
                 elif event.key == pygame.K_RIGHT:
                     dx = 1
                 
+                # Obtiene el costo extra de resistencia del clima
+                stamina_cost_modifier = weather_manager.get_stamina_cost_multiplier()
+                
                 if game_world.is_walkable(courier.x + dx, courier.y + dy):
-                    courier.move(dx, dy)
+                    # Pasa el costo de resistencia extra al método move
+                    courier.move(dx, dy, stamina_cost_modifier)
         
+        # --- Lógica de dibujado ---
         screen.fill((0, 0, 0))
         game_world.draw(screen)
         courier.draw(screen, TILE_SIZE)
+
+        # Lógica para dibujar el clima
+        # 1. Actualiza el estado de las animaciones
+        current_condition = weather_manager.get_current_condition()
+        weather_visuals.update(delta_time, current_condition)
+
+        # 2. Dibuja los efectos del clima
+        weather_visuals.draw(screen)
 
         pygame.display.flip()
 

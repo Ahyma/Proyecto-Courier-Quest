@@ -13,11 +13,13 @@ class Courier:
         self.inventory = []
         self.image = image
         
-    def move(self, dx, dy):
+    def move(self, dx, dy, stamina_cost_modifier):
         self.x += dx
         self.y += dy
-        self.stamina -= 1
-
+        # Consume la resistencia base más el costo adicional por el clima
+        base_cost = 0.5 # Esto es un valor sugerido de tu enunciado, puedes ajustarlo
+        self.stamina -= (base_cost + stamina_cost_modifier)
+    
     def pickup_job(self, job):
         if len(self.inventory) < 3:
             self.inventory.append(job)
