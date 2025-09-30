@@ -1,6 +1,7 @@
 import pygame
 from game.palette import TILE_COLORS
 from game.constants import TILE_SIZE
+import random 
 
 class World:
     def __init__(self, map_data, building_images=None, grass_image=None, street_images=None):
@@ -10,12 +11,14 @@ class World:
         self.height = self.map_data.get('height', 0)
         self.building_images = building_images if building_images else {}
         self.grass_image = grass_image
+        
+        # street_images ahora solo contiene {"patron_base": imagen_escalada o None}
         self.street_images = street_images if street_images else {}
         
     def get_building_size(self, start_x, start_y, visited):
         """
-        Calcula el tamaño de un bloque de edificios contiguo.
-        Retorna el ancho y el alto del bloque.
+        Calcula el tamaño de un bloque de edificios contiguo (B).
+        Retorna el ancho y el alto del bloque, y la coordenada inicial (esquina superior izquierda).
         """
         if start_x >= self.width or start_y >= self.height or self.tiles[start_y][start_x] != "B" or (start_x, start_y) in visited:
             return 0, 0, (start_x, start_y)
@@ -30,99 +33,65 @@ class World:
         while queue:
             x, y = queue.pop(0)
             
-            # Actualiza las dimensiones del bloque
             min_x = min(min_x, x)
             max_x = max(max_x, x)
             min_y = min(min_y, y)
             max_y = max(max_y, y)
-
-            # Revisa los vecinos (derecha, abajo, izquierda, arriba)
-            for dx, dy in [(1, 0), (0, 1), (-1, 0), (0, -1)]:
+            
+            for dx, dy in [(0, 1), (0, -1), (1, 0), (-1, 0)]:
                 nx, ny = x + dx, y + dy
                 
-                if 0 <= nx < self.width and 0 <= ny < self.height and self.tiles[ny][nx] == "B" and (nx, ny) not in visited:
+                if (0 <= nx < self.width and 
+                    0 <= ny < self.height and 
+                    self.tiles[ny][nx] == "B" and 
+                    (nx, ny) not in visited):
+                    
                     visited.add((nx, ny))
                     queue.append((nx, ny))
+                    
+        block_width = max_x - min_x + 1
+        block_height = max_y - min_y + 1
         
-        width = (max_x - min_x) + 1
-        height = (max_y - min_y) + 1
-        
-        # Devuelve el tamaño y la esquina superior izquierda
-        return width, height, (min_x, min_y)
+        return block_width, block_height, (min_x, min_y)
 
-    def get_street_image(self, x, y):
-        """
-        Determina qué imagen de calle usar basándose en los tiles vecinos.
-        """
-        # Se asume que B y P son los mismos que no-calle
-        up_tile = self.tiles[y - 1][x] if y > 0 else None
-        down_tile = self.tiles[y + 1][x] if y < self.height - 1 else None
-        left_tile = self.tiles[y][x - 1] if x > 0 else None
-        right_tile = self.tiles[y][x + 1] if x < self.width - 1 else None
-        
-        # Convierte los tiles a valores booleanos para simplificar la lógica
-        up = up_tile == "C"
-        down = down_tile == "C"
-        left = left_tile == "C"
-        right = right_tile == "C"
-        
-        # Intersección
-        if up and down and left and right:
-            return self.street_images.get("centro")
-        
-        # Tramos rectos
-        if not up and not down and left and right:
-            return self.street_images.get("horizontal")
-        if up and down and not left and not right:
-            return self.street_images.get("vertical")
-
-        # Bordes de calle (callejones sin salida)
-        if not up and not down and not left and right:
-            return self.street_images.get("borde_izquierda")
-        if not up and not down and left and not right:
-            return self.street_images.get("borde_derecha")
-        if not up and down and not left and not right:
-            return self.street_images.get("borde_arriba")
-        if up and not down and not left and not right:
-            return self.street_images.get("borde_abajo")
-            
-        # Esquinas
-        if not up and down and left and not right:
-            return self.street_images.get("esquina_arriba_derecha")
-        if not up and down and not left and right:
-            return self.street_images.get("esquina_arriba_izquierda")
-        if up and not down and left and not right:
-            return self.street_images.get("esquina_abajo_derecha")
-        if up and not down and not left and right:
-            return self.street_images.get("esquina_abajo_izquierda")
-            
-        return None # Si no hay coincidencia, devuelve None para no dibujar imagen
-        
     def draw(self, screen):
-        """
-        Dibuja el mundo del juego, usando imágenes para cada tipo de tile.
-        """
         visited_buildings = set()
         
-        for y, row in enumerate(self.tiles):
-            for x, tile_type in enumerate(row):
-                if tile_type == "C":  # Si es calle, usa el autotiling
-                    image = self.get_street_image(x, y)
-                    if image:
-                        screen.blit(image, (x * TILE_SIZE, y * TILE_SIZE))
+        # === PASS 1: DIBUJAR TODO EL SUELO (CALLES Y PARQUES) ===
+        # Obtenemos la imagen UNA SOLA VEZ del diccionario, puede ser None
+        street_image_to_use = self.street_images.get("patron_base")
+        
+        for y in range(self.height):
+            for x in range(self.width):
+                tile_type = self.tiles[y][x]
+                
+                # Dibuja Calles 'C'
+                if tile_type == "C": 
+                    # Verificar si la imagen se cargó correctamente (para evitar el 'NoneType' error)
+                    if street_image_to_use:
+                        screen.blit(street_image_to_use, (x * TILE_SIZE, y * TILE_SIZE)) 
                     else:
-                        color = TILE_COLORS.get(tile_type, (255, 255, 255))
+                        # Fallback: color gris de calle
+                        color = TILE_COLORS.get(tile_type, (100, 100, 100)) 
                         rect = pygame.Rect(x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE)
-                        pygame.draw.rect(screen, color, rect, 0)
-                elif tile_type == "P":  # Si es parque
+                        pygame.draw.rect(screen, color, rect)
+                
+                # Dibuja Parques/Césped 'P'
+                elif tile_type == "P": 
                     if self.grass_image:
                         screen.blit(self.grass_image, (x * TILE_SIZE, y * TILE_SIZE))
                     else:
-                        color = TILE_COLORS.get(tile_type, (255, 255, 255))
+                        # Fallback: color verde de parque
+                        color = TILE_COLORS.get(tile_type, (50, 200, 50)) 
                         rect = pygame.Rect(x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE)
-                        pygame.draw.rect(screen, color, rect, 0)
+                        pygame.draw.rect(screen, color, rect)
                 
-                elif tile_type == "B" and (x, y) not in visited_buildings:
+        # === PASS 2: DIBUJAR EDIFICIOS ('B' blocks) ===
+        for y in range(self.height):
+            for x in range(self.width):
+                tile_type = self.tiles[y][x]
+                
+                if tile_type == "B" and (x, y) not in visited_buildings:
                     # Si es un edificio no visitado, calcula su tamaño
                     block_width, block_height, (start_x, start_y) = self.get_building_size(x, y, visited_buildings)
                     
@@ -135,9 +104,9 @@ class World:
                             scaled_image = pygame.transform.scale(image, (block_width * TILE_SIZE, block_height * TILE_SIZE))
                             screen.blit(scaled_image, (start_x * TILE_SIZE, start_y * TILE_SIZE))
                         else:
-                            # Dibuja un rectángulo de color si no hay imagen específica
+                            # Fallback: Dibuja un rectángulo de color para el edificio
                             rect = pygame.Rect(start_x * TILE_SIZE, start_y * TILE_SIZE, block_width * TILE_SIZE, block_height * TILE_SIZE)
-                            pygame.draw.rect(screen, (100, 100, 100), rect, 0)
+                            pygame.draw.rect(screen, TILE_COLORS.get("B", (50, 50, 50)), rect, 0)
                             
     def is_walkable(self, x, y):
         """
@@ -161,8 +130,6 @@ class World:
         # Obtiene la leyenda completa del mapa
         legend = self.map_data.get('legend', {})
         
-        # Busca el peso del tipo de tile
-        weight = legend.get(tile_type, {}).get('surface_weight')
-        
-        # Retorna el peso o 1.0 como valor base si no se encuentra
-        return weight if isinstance(weight, (int, float)) else 1.0
+        # Busca el peso en la leyenda, o usa 1.0 por defecto
+        weight = legend.get(tile_type, {}).get('surface_weight', 1.0)
+        return weight

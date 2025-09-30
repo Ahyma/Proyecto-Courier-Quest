@@ -6,13 +6,14 @@ from api.client import APIClient
 from api.cache import APICache
 from game.courier import Courier
 from game.world import World
-from game.constants import TILE_SIZE
+# Solo importamos TILE_SIZE. SCREEN_WIDTH y SCREEN_HEIGHT se calculan en main().
+from game.constants import TILE_SIZE 
 from game.weather_manager import WeatherManager
 from game.weather_visuals import WeatherVisuals
-from game.courier import Courier
-from game.world import World
 from game.save_game import save_slot, load_slot
 from game.score_board import save_score, load_scores 
+
+# --- 1. Funciones de Carga de Imágenes ---
 
 def load_building_images():
     """
@@ -36,114 +37,101 @@ def load_building_images():
         (5, 7): "edificio7x9.png"
     }
     
+    base_path = "images"
     for size, filename in image_names.items():
         try:
-            image_path = os.path.join("images", filename)
-            image = pygame.image.load(image_path).convert_alpha()
+            image = pygame.image.load(os.path.join(base_path, filename)).convert_alpha()
             building_images[size] = image
         except pygame.error as e:
-            print(f"Error al cargar la imagen {filename}: {e}")
+            print(f"Error al cargar imagen de edificio {filename} para tamaño {size}: {e}")
             building_images[size] = None
-
+            
     return building_images
 
-def load_street_images(tile_size):
+def load_street_images():
     """
-    Carga y devuelve un diccionario de imágenes de calles para autotiling.
+    Carga la imagen única del patrón de calle (calle.png).
     """
+    base_path = "images"
     street_images = {}
-    image_names = {
-        "centro": "calle_centro.png",
-        "horizontal": "calle_horizontal.png",
-        "vertical": "calle_vertical.png",
-        "borde_arriba": "calle_borde_arriba.png",
-        "borde_abajo": "calle_borde_abajo.png",
-        "borde_izquierda": "calle_borde_izquierda.png",
-        "borde_derecha": "calle_borde_derecha.png",
-        "esquina_arriba_izquierda": "calle_esquina_arriba_izquierda.png",
-        "esquina_arriba_derecha": "calle_esquina_arriba_derecha.png",
-        "esquina_abajo_izquierda": "calle_esquina_abajo_izquierda.png",
-        "esquina_abajo_derecha": "calle_esquina_abajo_derecha.png",
-        "default": "calle_centro.png"
-    }
     
-    for key, filename in image_names.items():
-        try:
-            image_path = os.path.join("images", filename)
-            image = pygame.image.load(image_path).convert_alpha()
-            street_images[key] = pygame.transform.scale(image, (tile_size, tile_size))
-        except pygame.error as e:
-            print(f"Error al cargar la imagen de calle {filename}: {e}")
-            street_images[key] = None
+    filename = "calle.png"
     
+    try:
+        # Cargamos y escalamos la imagen única a TILE_SIZE x TILE_SIZE
+        image = pygame.image.load(os.path.join(base_path, filename)).convert_alpha()
+        street_images["patron_base"] = pygame.transform.scale(image, (TILE_SIZE, TILE_SIZE))
+        print(f"Imagen {filename} cargada con éxito.")
+        
+    except pygame.error as e:
+        print(f"Error CRÍTICO al cargar imagen de calle {filename}: {e}. Se usará color de fallback.")
+        street_images["patron_base"] = None 
+            
     return street_images
 
+# --- 2. Función Principal ---
+
 def main():
-    
-    #Función principal que ejecuta el bucle de juego
-    api_cache = APICache()
-    api_client = APIClient(api_cache=api_cache)
-
-    map_data = api_client.get_map_data()
-    if not map_data or 'data' not in map_data:
-        print("No se pudo cargar el mapa. Saliendo del juego.")
-        sys.exit()
-
-     # Carga los datos del clima e inicializa el manejador
-    weather_data = api_client.get_weather_data()
-    if not weather_data:
-        print("No se pudieron cargar los datos del clima. Saliendo del juego.")
-        sys.exit()
-    weather_manager = WeatherManager(weather_data)
-
-    map_info = map_data.get('data', {})
-    map_width = map_info.get('width', 0)
-    map_height = map_info.get('height', 0)
-    
-    if map_width == 0 or map_height == 0:
-        print("Las dimensiones del mapa no son válidas. Saliendo del juego.")
-        sys.exit()
-
-    screen_width = map_width * TILE_SIZE
-    screen_height = map_height * TILE_SIZE
-
     pygame.init()
-    screen = pygame.display.set_mode((screen_width, screen_height))
+    
+    # Inicialización de API y Caché
+    api_cache = APICache()
+    api_client = APIClient(api_cache)
+
+    # Cargar datos del mundo (usa API o cache/local)
+    map_data = api_client.get_map_data()
+    weather_data = api_client.get_weather_data()
+    
+    if not map_data or not weather_data:
+        print("Error: No se pudieron cargar los datos esenciales del mapa o clima.")
+        pygame.quit()
+        sys.exit()
+
+    # --- LÓGICA DE CÁLCULO DE PANTALLA DINÁMICA ---
+    # Extraer las dimensiones del mapa
+    map_width = map_data.get('data', {}).get('width', 0)
+    map_height = map_data.get('data', {}).get('height', 0)
+
+    # Validar dimensiones
+    if map_width <= 0 or map_height <= 0:
+        print(f"Error: Las dimensiones del mapa no son válidas (W:{map_width}, H:{map_height}).")
+        pygame.quit()
+        sys.exit()
+
+    # Calcular las dimensiones de la pantalla
+    SCREEN_WIDTH = map_width * TILE_SIZE
+    SCREEN_HEIGHT = map_height * TILE_SIZE
+    # -----------------------------------------------
+    
+    # Configuración de la pantalla
+    screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
     pygame.display.set_caption("Courier Quest")
 
+    # Inicialización del reloj y delta time
     clock = pygame.time.Clock()
-    #weather_visuals = WeatherVisuals(screen.get_size())
-    weather_visuals = WeatherVisuals(screen.get_size(), TILE_SIZE)
-
-    # ---- Cargar la imagen del repartidor ----
-    try:
-        repartidor_image = pygame.image.load(os.path.join("images", "repartidor.png")).convert_alpha()
-        repartidor_image = pygame.transform.scale(repartidor_image, (TILE_SIZE, TILE_SIZE))
-    except pygame.error as e:
-        print(f"Error al cargar la imagen del repartidor: {e}")
-        repartidor_image = None
     
-    # ---- Cargar la imagen de los edificios ----
+    # --- Carga de Recursos Visuales ---
     building_images = load_building_images()
-    if not building_images:
-        print("No se pudieron cargar las imágenes de edificios. Saliendo del juego.")
-        sys.exit()
-
-    # ---- Cargar las imágenes de calles ----
-    street_images = load_street_images(TILE_SIZE)
-    if not street_images:
-        print("No se pudieron cargar las imágenes de calles. Saliendo del juego.")
-        sys.exit()
-
-    # ---- Cargar la imagen del césped ----
+    street_images = load_street_images()
+    
+    # Carga de la imagen de césped
+    cesped_image = None
     try:
         cesped_image = pygame.image.load(os.path.join("images", "cesped.png")).convert_alpha()
         cesped_image = pygame.transform.scale(cesped_image, (TILE_SIZE, TILE_SIZE))
     except pygame.error as e:
-        print(f"Error al cargar la imagen del césped: {e}")
-        cesped_image = None
+        print(f"Error al cargar la imagen del césped: {e}. Se usará color de fallback.")
+        
+    # Carga de la imagen del repartidor
+    repartidor_image = None
+    try:
+        repartidor_image = pygame.image.load(os.path.join("images", "repartidor.png")).convert_alpha()
+        repartidor_image = pygame.transform.scale(repartidor_image, (TILE_SIZE, TILE_SIZE))
+    except pygame.error as e:
+        print(f"Error al cargar la imagen del repartidor: {e}. Se usará dibujo simple.")
 
-    # Inicializar el mundo del juego y el repartidor
+
+    # --- Inicialización de Lógica de Juego ---
     game_world = World(
         map_data=map_data, 
         building_images=building_images, 
@@ -151,31 +139,15 @@ def main():
         street_images=street_images
     )
     courier = Courier(start_x=0, start_y=0, image=repartidor_image)
-
-   # Inicializar el estado del juego
-    try:
-        loaded_state = load_slot("slot1.sav")
-        # Aplicar los valores cargados
-        courier.x = loaded_state.get('courier_x', courier.x)
-        courier.y = loaded_state.get('courier_y', courier.y)
-        courier.money = loaded_state.get('money', courier.money)
-        courier.reputation = loaded_state.get('reputation', courier.reputation)
-        courier.stamina = loaded_state.get('stamina', courier.stamina)
-        courier.inventory = loaded_state.get('inventory', courier.inventory)
-        print("🚀 Partida cargada automáticamente.")
-    except FileNotFoundError:
-        print("Nueva partida iniciada. No se encontró archivo de guardado.")
-    except Exception as e:
-        print(f"❌ Error al cargar la partida: {e}")
+    weather_manager = WeatherManager(weather_data)
+    weather_visuals = WeatherVisuals(screen.get_size(), TILE_SIZE)
 
     running = True
     while running:
-        # Tiempo en segundos desde el último frame
-        delta_time = clock.tick(60) / 1000.0
+        # Calcular delta time (tiempo transcurrido desde el último frame)
+        delta_time = clock.tick(60) / 1000.0 # Convertir milisegundos a segundos
 
-        # Actualiza el clima
-        weather_manager.update(delta_time)
-
+        # --- Manejo de Eventos ---
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
@@ -190,66 +162,43 @@ def main():
                 elif event.key == pygame.K_RIGHT:
                     dx = 1
 
-                # ----------------------------------------------------
-                # ✨ LÓGICA DE GUARDADO/CARGA AÑADIDA AQUÍ
-                # ----------------------------------------------------
-                elif event.key == pygame.K_s: # Tecla 'S' para Guardar
-                    game_state = {
-                        'courier_x': courier.x,
-                        'courier_y': courier.y,
-                        'money': courier.money,
-                        'reputation': courier.reputation,
-                        'stamina': courier.stamina,
-                        'inventory': courier.inventory,
-                        # IMPORTANTE: Asegúrate de guardar aquí TODAS las variables
-                        # necesarias para restaurar el juego (tiempo, pedidos activos, etc.)
-                    }
-                    save_slot("slot1.sav", game_state)
-                    print("✅ Partida guardada con éxito.")
-                    continue # No hay movimiento, así que pasa al siguiente evento
-
-                elif event.key == pygame.K_l: # Tecla 'L' para Cargar
+                # Teclas de Guardado/Carga
+                elif event.key == pygame.K_s:
+                    save_slot("slot1.sav", courier)
+                    continue
+                elif event.key == pygame.K_l:
                     try:
-                        loaded_state = load_slot("slot1.sav")
-                        # Aplicar los valores cargados a los objetos del juego
-                        courier.x = loaded_state.get('courier_x', courier.x)
-                        courier.y = loaded_state.get('courier_y', courier.y)
-                        courier.money = loaded_state.get('money', courier.money)
-                        courier.reputation = loaded_state.get('reputation', courier.reputation)
-                        courier.stamina = loaded_state.get('stamina', courier.stamina)
-                        courier.inventory = loaded_state.get('inventory', courier.inventory)
-                        print("🚀 Partida cargada con éxito.")
-                        
-                        # Después de cargar, a menudo es bueno reiniciar el bucle para que el
-                        # juego se actualice inmediatamente con los nuevos datos.
-                        return main() # Podrías simplificar esto con un 'break' o 'continue' 
-                                      # si prefieres no reiniciar toda la función main.
-
+                        loaded_data = load_slot("slot1.sav")
+                        if loaded_data:
+                            courier.load_state(loaded_data)
+                            print("Partida cargada con éxito.")
+                        else:
+                            print("El archivo de guardado está vacío o corrupto.")
                     except FileNotFoundError:
                         print("No se encontró el archivo de guardado 'slot1.sav'.")
                     except Exception as e:
                         print(f"Error al cargar la partida: {e}")
-                    continue # No hay movimiento, así que pasa al siguiente evento
-                # ----------------------------------------------------
-                
+                    continue 
+
                 # Obtiene el costo extra de resistencia del clima
                 stamina_cost_modifier = weather_manager.get_stamina_cost_multiplier()
                 
+                # Mover si es transitable
                 if game_world.is_walkable(courier.x + dx, courier.y + dy):
                     # Pasa el costo de resistencia extra al método move
                     courier.move(dx, dy, stamina_cost_modifier)
         
+        # --- Lógica de Actualización ---
+        weather_manager.update(delta_time)
+        
         # --- Lógica de dibujado ---
-        screen.fill((0, 0, 0))
+        screen.fill((0, 0, 0)) # Limpiar pantalla
         game_world.draw(screen)
         courier.draw(screen, TILE_SIZE)
 
         # Lógica para dibujar el clima
-        # 1. Actualiza el estado de las animaciones
         current_condition = weather_manager.get_current_condition()
         weather_visuals.update(delta_time, current_condition)
-
-        # 2. Dibuja los efectos del clima
         weather_visuals.draw(screen)
 
         pygame.display.flip()
