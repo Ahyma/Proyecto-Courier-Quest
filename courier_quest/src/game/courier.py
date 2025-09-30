@@ -2,7 +2,7 @@ import pygame
 import os
 
 class Courier:
-    def __init__(self, start_x, start_y, image, max_stamina=100, max_speed=5):
+    def __init__(self, start_x, start_y, image, max_stamina=100, max_speed=5, max_weight=5):
         self.x = start_x
         self.y = start_y
         self.speed = max_speed
@@ -10,22 +10,38 @@ class Courier:
         self.max_stamina = max_stamina
         self.money = 0
         self.reputation = 0
-        self.inventory = []
+        self.max_weight = max_weight # Peso máximo que puede llevar
+        self.inventory = [] 
         self.image = image
+        self.packages_delivered = 0 # Contador de pedidos entregados
         
-    def move(self, dx, dy, stamina_cost_modifier):
+    @property
+    def current_weight(self):
+        """Calcula el peso total de los pedidos en el inventario.
+        Asume que cada pedido tiene una clave 'weight'."""
+        total_weight = sum(job.get('weight', 0) for job in self.inventory)
+        return total_weight
+
+    def move(self, dx, dy, stamina_cost_multiplier=1.0):
+        # Lógica de penalización de peso (un ejemplo simple)
+        base_stamina_cost = 1 
+        weight_penalty = self.current_weight * 0.1 # 10% más de costo por cada unidad de peso
+        total_stamina_cost = (base_stamina_cost + weight_penalty) * stamina_cost_multiplier
+        
         self.x += dx
         self.y += dy
-        # Consume la resistencia base más el costo adicional por el clima
-        base_cost = 0.5 # Esto es un valor sugerido de tu enunciado, puedes ajustarlo
-        self.stamina -= (base_cost + stamina_cost_modifier)
-    
+        # El costo de resistencia total se calcula con el multiplicador de clima y la penalización de peso
+        self.stamina = max(0, self.stamina - total_stamina_cost) 
+
     def pickup_job(self, job):
-        if len(self.inventory) < 3:
+        job_weight = job.get('weight', 0)
+        
+        # Verifica el límite de peso. Puedes añadir tu propia lógica de límite de ítems si es necesario.
+        if self.current_weight + job_weight <= self.max_weight:
             self.inventory.append(job)
-            print(f"Pedido {job.get('id')} recogido en ({self.x}, {self.y}).")
+            print(f"Pedido {job.get('id')} recogido en ({self.x}, {self.y}). Peso: {job_weight}.")
         else:
-            print("Inventario lleno. No se puede recoger más pedidos.")
+            print(f"Inventario lleno o excedería el peso máximo de {self.max_weight} (Peso actual: {self.current_weight}).")
 
     def deliver_job(self):
         if self.inventory:
@@ -45,8 +61,3 @@ class Courier:
         if self.image:
             # Dibuja la imagen del repartidor en la posición actual
             screen.blit(self.image, (self.x * TILE_SIZE, self.y * TILE_SIZE))
-        else:
-            # Si no hay imagen, dibuja un círculo para depuración
-            pos_x = self.x * TILE_SIZE + TILE_SIZE // 2
-            pos_y = self.y * TILE_SIZE + TILE_SIZE // 2
-            pygame.draw.circle(screen, (255, 0, 0), (pos_x, pos_y), TILE_SIZE // 2)
