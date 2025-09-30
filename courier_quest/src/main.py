@@ -6,14 +6,17 @@ from api.client import APIClient
 from api.cache import APICache
 from game.courier import Courier
 from game.world import World
-# Solo importamos TILE_SIZE. SCREEN_WIDTH y SCREEN_HEIGHT se calculan en main().
-from game.constants import TILE_SIZE 
+# MODIFICADO: Solo importamos TILE_SIZE y PANEL_WIDTH
+from game.constants import TILE_SIZE, PANEL_WIDTH
 from game.weather_manager import WeatherManager
 from game.weather_visuals import WeatherVisuals
 from game.save_game import save_slot, load_slot
 from game.score_board import save_score, load_scores 
+# AÑADIDO: Importamos la clase HUD
+from game.hud import HUD 
+# from game.palette import WHITE # Descomentar si usas un color específico de palette
 
-# --- 1. Funciones de Carga de Imágenes ---
+# --- 1. Funciones de Carga de Imágenes (SIN CAMBIOS) ---
 
 def load_building_images():
     """
@@ -21,30 +24,24 @@ def load_building_images():
     """
     building_images = {}
     image_names = {
-        (2, 2): "edificio2x2.png",
-        (3, 3): "edificio3x3.png",
-        (3, 4): "edificio3x4.png",
-        (3, 8): "edificio5x5.png", 
-        (4, 4): "edificio4x4.png",
-        (5, 4): "edificio5x4.png",
-        (4, 5): "edificio2x2.png",
-        (4, 6): "edificio5x4.png",
-        (5, 5): "edificio4x4.png",
-        (6, 5): "edificio6x5.png",
+        (3, 8): "edificio3x8.png",
+        (4, 6): "edificio4x6.png",
+        (4, 5): "edificio4x5.png",
+        (5, 7): "edificio5x7.png",
         (6, 8): "edificio6x8.png",
-        (7, 7): "edificio7x7.png",
-        (7, 9): "edificio5x7.png",
-        (5, 7): "edificio7x9.png"
+        (7, 9): "edificio7x9.png"
     }
     
     base_path = "images"
     for size, filename in image_names.items():
         try:
+            # Cargamos la imagen
             image = pygame.image.load(os.path.join(base_path, filename)).convert_alpha()
             building_images[size] = image
+            print(f"Imagen de edificio {filename} ({size}) cargada con éxito.")
         except pygame.error as e:
-            print(f"Error al cargar imagen de edificio {filename} para tamaño {size}: {e}")
-            building_images[size] = None
+            print(f"Error al cargar imagen de edificio {filename}: {e}. Se usará color de fallback.")
+            building_images[size] = None # En caso de error, guardar None
             
     return building_images
 
@@ -69,90 +66,95 @@ def load_street_images():
             
     return street_images
 
+
 # --- 2. Función Principal ---
 
 def main():
+    # Inicialización de Pygame
     pygame.init()
-    
-    # Inicialización de API y Caché
+
+    # Inicialización de API y Cache
     api_cache = APICache()
     api_client = APIClient(api_cache)
 
-    # Cargar datos del mundo (usa API o cache/local)
+    # Carga de datos
     map_data = api_client.get_map_data()
     weather_data = api_client.get_weather_data()
     
-    if not map_data or not weather_data:
-        print("Error: No se pudieron cargar los datos esenciales del mapa o clima.")
+    if not map_data:
+        print("Error CRÍTICO: No se pudo cargar los datos del mapa. Saliendo.")
         pygame.quit()
         sys.exit()
 
-    # --- LÓGICA DE CÁLCULO DE PANTALLA DINÁMICA ---
-    # Extraer las dimensiones del mapa
-    map_width = map_data.get('data', {}).get('width', 0)
-    map_height = map_data.get('data', {}).get('height', 0)
+    # --- CÁLCULO DINÁMICO DEL TAMAÑO DE PANTALLA (NUEVO Y CRÍTICO) ---
+    map_info = map_data.get('data', {})
+    map_tile_width = map_info.get('width', 20)  # Tiles de ancho del mapa (fallback 20)
+    map_tile_height = map_info.get('height', 15) # Tiles de alto del mapa (fallback 15)
 
-    # Validar dimensiones
-    if map_width <= 0 or map_height <= 0:
-        print(f"Error: Las dimensiones del mapa no son válidas (W:{map_width}, H:{map_height}).")
-        pygame.quit()
-        sys.exit()
+    SCREEN_WIDTH = map_tile_width * TILE_SIZE
+    SCREEN_HEIGHT = map_tile_height * TILE_SIZE
 
-    # Calcular las dimensiones de la pantalla
-    SCREEN_WIDTH = map_width * TILE_SIZE
-    SCREEN_HEIGHT = map_height * TILE_SIZE
-    # -----------------------------------------------
-    
     # Configuración de la pantalla
-    screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
+    # AJUSTE: El ancho total es la suma del mapa más el panel HUD
+    screen_size = (SCREEN_WIDTH + PANEL_WIDTH, SCREEN_HEIGHT) 
+    screen = pygame.display.set_mode(screen_size)
     pygame.display.set_caption("Courier Quest")
 
-    # Inicialización del reloj y delta time
+    # Inicialización del reloj para control de FPS
     clock = pygame.time.Clock()
+    FPS = 60
     
-    # --- Carga de Recursos Visuales ---
+    # Carga de imágenes (SIN CAMBIOS EN LA LÓGICA DE CARGA)
     building_images = load_building_images()
     street_images = load_street_images()
     
-    # Carga de la imagen de césped
-    cesped_image = None
+    # Cargar imagen de césped
     try:
         cesped_image = pygame.image.load(os.path.join("images", "cesped.png")).convert_alpha()
         cesped_image = pygame.transform.scale(cesped_image, (TILE_SIZE, TILE_SIZE))
     except pygame.error as e:
-        print(f"Error al cargar la imagen del césped: {e}. Se usará color de fallback.")
-        
-    # Carga de la imagen del repartidor
-    repartidor_image = None
+        print(f"Error al cargar la imagen del césped: {e}")
+        cesped_image = None
+
+    # Cargar imagen del repartidor
     try:
         repartidor_image = pygame.image.load(os.path.join("images", "repartidor.png")).convert_alpha()
         repartidor_image = pygame.transform.scale(repartidor_image, (TILE_SIZE, TILE_SIZE))
     except pygame.error as e:
-        print(f"Error al cargar la imagen del repartidor: {e}. Se usará dibujo simple.")
-
-
-    # --- Inicialización de Lógica de Juego ---
+        print(f"Error al cargar la imagen del repartidor: {e}")
+        repartidor_image = None
+        
+    # Inicializar el mundo del juego y el repartidor
     game_world = World(
         map_data=map_data, 
         building_images=building_images, 
         grass_image=cesped_image, 
         street_images=street_images
     )
+    # Asume que el punto de inicio es (0, 0) o lo obtienes del mapa.
     courier = Courier(start_x=0, start_y=0, image=repartidor_image)
+    
+    # Inicializar el clima y sus visuales
     weather_manager = WeatherManager(weather_data)
-    weather_visuals = WeatherVisuals(screen.get_size(), TILE_SIZE)
+    # AJUSTE: weather_visuals debe recibir el tamaño de la pantalla de juego (sin el HUD)
+    weather_visuals = WeatherVisuals((SCREEN_WIDTH, SCREEN_HEIGHT), TILE_SIZE)
 
+    # --- INICIALIZACIÓN DEL HUD (NUEVO) ---
+    # Define el área del HUD que comienza después del mapa de juego (SCREEN_WIDTH)
+    hud_area = pygame.Rect(SCREEN_WIDTH, 0, PANEL_WIDTH, SCREEN_HEIGHT)
+    hud = HUD(hud_area, SCREEN_HEIGHT, TILE_SIZE)
+    # -------------------------------------
+    
     running = True
     while running:
-        # Calcular delta time (tiempo transcurrido desde el último frame)
-        delta_time = clock.tick(60) / 1000.0 # Convertir milisegundos a segundos
-
-        # --- Manejo de Eventos ---
+        delta_time = clock.tick(FPS) / 1000.0 # Tiempo transcurrido en segundos
+        
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
             elif event.type == pygame.KEYDOWN:
                 dx, dy = 0, 0
+                
                 if event.key == pygame.K_UP:
                     dy = -1
                 elif event.key == pygame.K_DOWN:
@@ -161,14 +163,14 @@ def main():
                     dx = -1
                 elif event.key == pygame.K_RIGHT:
                     dx = 1
-
-                # Teclas de Guardado/Carga
-                elif event.key == pygame.K_s:
-                    save_slot("slot1.sav", courier)
+                elif event.key == pygame.K_s: # Guardar partida
+                    data_to_save = courier.get_save_state()
+                    save_slot(1, data_to_save)
+                    print("Partida guardada.")
                     continue
-                elif event.key == pygame.K_l:
+                elif event.key == pygame.K_l: # Cargar partida
                     try:
-                        loaded_data = load_slot("slot1.sav")
+                        loaded_data = load_slot(1)
                         if loaded_data:
                             courier.load_state(loaded_data)
                             print("Partida cargada con éxito.")
@@ -193,13 +195,21 @@ def main():
         
         # --- Lógica de dibujado ---
         screen.fill((0, 0, 0)) # Limpiar pantalla
+        
+        # 1. Dibujar el mundo y el repartidor
         game_world.draw(screen)
         courier.draw(screen, TILE_SIZE)
 
-        # Lógica para dibujar el clima
+        # 2. Dibujar efectos del clima
         current_condition = weather_manager.get_current_condition()
         weather_visuals.update(delta_time, current_condition)
         weather_visuals.draw(screen)
+
+        # --- DIBUJADO DEL HUD (NUEVO) ---
+        # 3. Dibujar el HUD (último para que esté encima de todo)
+        current_speed_mult = weather_manager.get_speed_multiplier()
+        hud.draw(screen, courier, current_condition, current_speed_mult)
+        # ----------------------------------
 
         pygame.display.flip()
 
