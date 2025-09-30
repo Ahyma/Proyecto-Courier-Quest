@@ -7,6 +7,12 @@ from api.cache import APICache
 from game.courier import Courier
 from game.world import World
 from game.constants import TILE_SIZE
+from game.weather_manager import WeatherManager
+from game.weather_visuals import WeatherVisuals
+from game.courier import Courier
+from game.world import World
+from game.save_game import save_slot, load_slot
+from game.score_board import save_score, load_scores 
 
 def load_building_images():
     """
@@ -58,6 +64,7 @@ def load_street_images(tile_size):
         "esquina_arriba_derecha": "calle_esquina_arriba_derecha.png",
         "esquina_abajo_izquierda": "calle_esquina_abajo_izquierda.png",
         "esquina_abajo_derecha": "calle_esquina_abajo_derecha.png",
+        "default": "calle_centro.png"
     }
     
     for key, filename in image_names.items():
@@ -82,6 +89,13 @@ def main():
         print("No se pudo cargar el mapa. Saliendo del juego.")
         sys.exit()
 
+     # Carga los datos del clima e inicializa el manejador
+    weather_data = api_client.get_weather_data()
+    if not weather_data:
+        print("No se pudieron cargar los datos del clima. Saliendo del juego.")
+        sys.exit()
+    weather_manager = WeatherManager(weather_data)
+
     map_info = map_data.get('data', {})
     map_width = map_info.get('width', 0)
     map_height = map_info.get('height', 0)
@@ -96,6 +110,10 @@ def main():
     pygame.init()
     screen = pygame.display.set_mode((screen_width, screen_height))
     pygame.display.set_caption("Courier Quest")
+
+    clock = pygame.time.Clock()
+    #weather_visuals = WeatherVisuals(screen.get_size())
+    weather_visuals = WeatherVisuals(screen.get_size(), TILE_SIZE)
 
     # ---- Cargar la imagen del repartidor ----
     try:
@@ -134,8 +152,30 @@ def main():
     )
     courier = Courier(start_x=0, start_y=0, image=repartidor_image)
 
+   # Inicializar el estado del juego
+    try:
+        loaded_state = load_slot("slot1.sav")
+        # Aplicar los valores cargados
+        courier.x = loaded_state.get('courier_x', courier.x)
+        courier.y = loaded_state.get('courier_y', courier.y)
+        courier.money = loaded_state.get('money', courier.money)
+        courier.reputation = loaded_state.get('reputation', courier.reputation)
+        courier.stamina = loaded_state.get('stamina', courier.stamina)
+        courier.inventory = loaded_state.get('inventory', courier.inventory)
+        print("🚀 Partida cargada automáticamente.")
+    except FileNotFoundError:
+        print("Nueva partida iniciada. No se encontró archivo de guardado.")
+    except Exception as e:
+        print(f"❌ Error al cargar la partida: {e}")
+
     running = True
     while running:
+        # Tiempo en segundos desde el último frame
+        delta_time = clock.tick(60) / 1000.0
+
+        # Actualiza el clima
+        weather_manager.update(delta_time)
+
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
@@ -149,13 +189,68 @@ def main():
                     dx = -1
                 elif event.key == pygame.K_RIGHT:
                     dx = 1
+
+                # ----------------------------------------------------
+                # ✨ LÓGICA DE GUARDADO/CARGA AÑADIDA AQUÍ
+                # ----------------------------------------------------
+                elif event.key == pygame.K_s: # Tecla 'S' para Guardar
+                    game_state = {
+                        'courier_x': courier.x,
+                        'courier_y': courier.y,
+                        'money': courier.money,
+                        'reputation': courier.reputation,
+                        'stamina': courier.stamina,
+                        'inventory': courier.inventory,
+                        # IMPORTANTE: Asegúrate de guardar aquí TODAS las variables
+                        # necesarias para restaurar el juego (tiempo, pedidos activos, etc.)
+                    }
+                    save_slot("slot1.sav", game_state)
+                    print("✅ Partida guardada con éxito.")
+                    continue # No hay movimiento, así que pasa al siguiente evento
+
+                elif event.key == pygame.K_l: # Tecla 'L' para Cargar
+                    try:
+                        loaded_state = load_slot("slot1.sav")
+                        # Aplicar los valores cargados a los objetos del juego
+                        courier.x = loaded_state.get('courier_x', courier.x)
+                        courier.y = loaded_state.get('courier_y', courier.y)
+                        courier.money = loaded_state.get('money', courier.money)
+                        courier.reputation = loaded_state.get('reputation', courier.reputation)
+                        courier.stamina = loaded_state.get('stamina', courier.stamina)
+                        courier.inventory = loaded_state.get('inventory', courier.inventory)
+                        print("🚀 Partida cargada con éxito.")
+                        
+                        # Después de cargar, a menudo es bueno reiniciar el bucle para que el
+                        # juego se actualice inmediatamente con los nuevos datos.
+                        return main() # Podrías simplificar esto con un 'break' o 'continue' 
+                                      # si prefieres no reiniciar toda la función main.
+
+                    except FileNotFoundError:
+                        print("No se encontró el archivo de guardado 'slot1.sav'.")
+                    except Exception as e:
+                        print(f"Error al cargar la partida: {e}")
+                    continue # No hay movimiento, así que pasa al siguiente evento
+                # ----------------------------------------------------
+                
+                # Obtiene el costo extra de resistencia del clima
+                stamina_cost_modifier = weather_manager.get_stamina_cost_multiplier()
                 
                 if game_world.is_walkable(courier.x + dx, courier.y + dy):
-                    courier.move(dx, dy)
+                    # Pasa el costo de resistencia extra al método move
+                    courier.move(dx, dy, stamina_cost_modifier)
         
+        # --- Lógica de dibujado ---
         screen.fill((0, 0, 0))
         game_world.draw(screen)
         courier.draw(screen, TILE_SIZE)
+
+        # Lógica para dibujar el clima
+        # 1. Actualiza el estado de las animaciones
+        current_condition = weather_manager.get_current_condition()
+        weather_visuals.update(delta_time, current_condition)
+
+        # 2. Dibuja los efectos del clima
+        weather_visuals.draw(screen)
 
         pygame.display.flip()
 

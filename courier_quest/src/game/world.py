@@ -147,3 +147,22 @@ class World:
             return False
         tile_type = self.tiles[y][x]
         return tile_type != "B"
+       
+    def surface_weight_at(self, x, y):
+        """
+        Retorna el 'surface_weight' del tipo de tile en (x, y). 
+        Este valor es un multiplicador de costo/velocidad para el movimiento.
+        """
+        if not (0 <= x < self.width and 0 <= y < self.height):
+            return 1.0 # Peso por defecto para fuera del mapa
+
+        tile_type = self.tiles[y][x]
+        
+        # Obtiene la leyenda completa del mapa
+        legend = self.map_data.get('legend', {})
+        
+        # Busca el peso del tipo de tile
+        weight = legend.get(tile_type, {}).get('surface_weight')
+        
+        # Retorna el peso o 1.0 como valor base si no se encuentra
+        return weight if isinstance(weight, (int, float)) else 1.0
