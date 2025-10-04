@@ -4,7 +4,6 @@ from .cache import APICache
 
 class APIClient:
     def __init__(self, api_cache):
-        # Esta es la URL base del API, sin /docs
         self.base_url = "https://tigerds-api.kindflower-ccaf48b6.eastus.azurecontainerapps.io"
         self.api_cache = api_cache
 
@@ -12,13 +11,12 @@ class APIClient:
         """
         Intenta obtener datos del API y, si falla, los carga desde un archivo local.
         """
-        # La URL ahora se forma correctamente con /city/ + el endpoint
         url = f"{self.base_url}/city/{endpoint}"
         try:
             response = requests.get(url, timeout=5)
             response.raise_for_status()
             data = response.json()
-            self.api_cache.save_data(local_file, data) # Guardar en caché
+            self.api_cache.save_data(local_file, data)
             print(f"Datos de {endpoint} cargados desde el API.")
             return data
         except (requests.exceptions.RequestException, json.JSONDecodeError) as e:
