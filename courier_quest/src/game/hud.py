@@ -46,15 +46,18 @@ class HUD:
             
         surface.blit(text_surface, text_rect)
 
-    def draw(self, screen, courier, weather_condition, speed_multiplier):
+    def draw(self, screen, courier, weather_condition, speed_multiplier, remaining_time=0, goal_income=0):
+       
         """
         Dibuja el panel de información completo.
         :param screen: La superficie de Pygame donde dibujar.
         :param courier: Instancia de la clase Courier.
         :param weather_condition: Nombre de la condición climática actual (string).
         :param speed_multiplier: Multiplicador de velocidad actual del clima.
+        :param remaining_time: Tiempo restante en segundos.
+        :param goal_income: Ingreso objetivo para el nivel.
         """
-        # 1. Dibujar el fondo del panel
+        # --- Dibujar el fondo del panel ---
         pygame.draw.rect(screen, self.background_color, self.rect)
         
         # Coordenadas de inicio para el contenido
@@ -62,13 +65,23 @@ class HUD:
         start_x = self.rect.left + padding
         start_y = self.rect.top + padding
         line_spacing = 30
-        
-        # 2. Título
+
+        # --- Título ---
         self.draw_text(screen, "COURIER QUEST", self.title_font, (255, 215, 0), 
                        self.rect.centerx, start_y, align='center')
         start_y += 60 # Espacio después del título
+
+        # --- Tiempo e ingresos ---
+        minutes = int(remaining_time // 60)
+        seconds = int(remaining_time % 60)
+        self.draw_text(screen, f"Tiempo: {minutes:02d}:{seconds:02d}", self.font, self.text_color, start_x, start_y)
+        start_y += line_spacing
         
-        # 3. Información del Repartidor (Courier)
+        self.draw_text(screen, f"Ingresos: {courier.income}/{int(goal_income)}", 
+                       self.font, self.text_color, start_x, start_y)
+        start_y += line_spacing
+
+        # --- Courier --- (info del repartidor)
         self.draw_text(screen, "--- Repartidor ---", self.font, self.text_color, start_x, start_y)
         start_y += line_spacing
         
@@ -78,7 +91,7 @@ class HUD:
         self.draw_text(screen, f"Pedidos: {courier.packages_delivered}", self.font, self.text_color, start_x, start_y)
         start_y += line_spacing
         
-        # 4. Barra de Resistencia (Stamina)
+        # --- Barra de resistencia --- (Stamina)
         stamina_percent = courier.stamina / courier.max_stamina
         stamina_bar_rect = pygame.Rect(start_x, start_y, self.rect.width - 2 * padding, 20)
         
@@ -98,7 +111,11 @@ class HUD:
         
         start_y += line_spacing + 10 # Espacio después de la barra
         
-        # 5. Información del Clima
+        # --- Reputación ---
+        self.draw_text(screen, f"Reputación: {courier.reputation}", self.font, self.text_color, start_x, start_y)
+        start_y += line_spacing
+
+        # --- Clima ---
         self.draw_text(screen, "--- Clima ---", self.font, self.text_color, start_x, start_y)
         start_y += line_spacing
         
@@ -110,3 +127,12 @@ class HUD:
         # Muestra el impacto en la velocidad
         speed_impact = f"{int(speed_multiplier * 100)}%"
         self.draw_text(screen, f"Vel. (Mult.): {speed_impact}", self.font, self.text_color, start_x, start_y)
+
+""" 
+Ahora muestra:
+Tiempo restante (mm:ss)
+Ingresos actuales y meta (courier.income/goal_income)
+Reputación (según reglas del juego)
+
+Entonces ya nuestro hud cumple con lo de las condiciones de victoria/derrota
+"""
