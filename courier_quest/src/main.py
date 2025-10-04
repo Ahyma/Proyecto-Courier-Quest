@@ -145,73 +145,80 @@ def main():
     hud = HUD(hud_area, SCREEN_HEIGHT, TILE_SIZE)
     # -------------------------------------
     
+    # --- variables de control de tiempo y meta ---
+    elapsed_time = 0.0
+    max_time = map_info.get("max_time", 900)  # segundos
+    goal_income = map_info.get("goal", 0)
+
     running = True
     while running:
-        delta_time = clock.tick(FPS) / 1000.0 # Tiempo transcurrido en segundos
-        
+        delta_time = clock.tick(FPS) / 1000.0 # Tiempo en segundos
+        elapsed_time += delta_time
+        remaining_time = max_time - elapsed_time
+
+        # Condición de derrota por tiempo
+        if remaining_time <= 0:
+            print("Game Over: se acabó el tiempo.")
+            running = False
+
+        # Condición de victoria por meta alcanzada
+        if getattr(courier, "income", 0) >= goal_income:
+            print("¡Victoria! Meta alcanzada.")
+            running = False
+
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
             elif event.type == pygame.KEYDOWN:
                 dx, dy = 0, 0
-                
-                if event.key == pygame.K_UP:
-                    dy = -1
-                elif event.key == pygame.K_DOWN:
-                    dy = 1
-                elif event.key == pygame.K_LEFT:
-                    dx = -1
-                elif event.key == pygame.K_RIGHT:
-                    dx = 1
-                elif event.key == pygame.K_s: # Guardar partida
+                if event.key == pygame.K_UP: dy = -1
+                elif event.key == pygame.K_DOWN: dy = 1
+                elif event.key == pygame.K_LEFT: dx = -1
+                elif event.key == pygame.K_RIGHT: dx = 1
+                elif event.key == pygame.K_s:
                     data_to_save = courier.get_save_state()
                     save_slot(1, data_to_save)
                     print("Partida guardada.")
                     continue
-                elif event.key == pygame.K_l: # Cargar partida
+                elif event.key == pygame.K_l:
                     try:
                         loaded_data = load_slot(1)
                         if loaded_data:
                             courier.load_state(loaded_data)
-                            print("Partida cargada con éxito.")
+                            print("Partida cargada.")
                         else:
-                            print("El archivo de guardado está vacío o corrupto.")
+                            print("Archivo de guardado vacío o corrupto.")
                     except FileNotFoundError:
-                        print("No se encontró el archivo de guardado 'slot1.sav'.")
-                    except Exception as e:
-                        print(f"Error al cargar la partida: {e}")
-                    continue 
+                        print("No se encontró 'slot1.sav'.")
+                    continue
 
-                # Obtiene el costo extra de resistencia del clima
+                # --- integración con surface_weight y clima ---
                 stamina_cost_modifier = weather_manager.get_stamina_cost_multiplier()
-                
-                # Mover si es transitable
-                if game_world.is_walkable(courier.x + dx, courier.y + dy):
-                    # Pasa el costo de resistencia extra al método move
-                    courier.move(dx, dy, stamina_cost_modifier)
-        
-        # --- Lógica de Actualización ---
+                climate_mult = weather_manager.get_speed_multiplier()
+                new_x, new_y = courier.x + dx, courier.y + dy
+                if game_world.is_walkable(new_x, new_y):
+                    surface_weight = game_world.surface_weight_at(new_x, new_y)
+                    courier.move(dx, dy,
+                                 stamina_cost_modifier=stamina_cost_modifier,
+                                 surface_weight=surface_weight,
+                                 climate_mult=climate_mult)
+                #se pasa toda la info para calcular la formula oficial de velocidad
+
         weather_manager.update(delta_time)
-        
-        # --- Lógica de dibujado ---
-        screen.fill((0, 0, 0)) # Limpiar pantalla
-        
-        # 1. Dibujar el mundo y el repartidor
+
+        screen.fill((0, 0, 0))
         game_world.draw(screen)
         courier.draw(screen, TILE_SIZE)
 
-        # 2. Dibujar efectos del clima
         current_condition = weather_manager.get_current_condition()
-        weather_visuals.update(delta_time, current_condition)
+        weather_visuals.update(delta_time, current_condition, weather_manager.get_current_intensity()) #pasa intensidad actual del manager
         weather_visuals.draw(screen)
 
-        # --- DIBUJADO DEL HUD (NUEVO) ---
-        # 3. Dibujar el HUD (último para que esté encima de todo)
         current_speed_mult = weather_manager.get_speed_multiplier()
         hud.draw(screen, courier, current_condition, current_speed_mult)
-        # ----------------------------------
 
         pygame.display.flip()
+
 
     pygame.quit()
     sys.exit()
