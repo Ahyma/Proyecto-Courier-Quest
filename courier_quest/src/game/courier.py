@@ -11,12 +11,15 @@ class Courier:
         self.base_speed = base_speed
         self.stamina = max_stamina
         self.max_stamina = max_stamina
-        self.income = 0
+        self.income = 0.0
         self.reputation = 70
         self.max_weight = max_weight
-        
+
         self.inventory = Inventory(max_weight)
         self.packages_delivered = 0
+
+        # Racha de entregas sin penalización
+        self._clean_streak = 0  # cuenta entregas con delta de reputación >= 0
 
     @property
     def current_weight(self):
@@ -31,12 +34,10 @@ class Courier:
         else:
             return "normal"
 
-    def move(self, dx, dy, stamina_cost_modifier=1.0, surface_weight=1.0,
-             climate_mult=1.0):
-        # Multiplicadores
+    def move(self, dx, dy, stamina_cost_modifier=1.0, surface_weight=1.0, climate_mult=1.0):
         Mpeso = max(0.8, 1 - 0.03 * self.current_weight)
         Mrep = 1.03 if self.reputation >= 90 else 1.0
-        
+
         if self.stamina <= 0:
             Mresistencia = 0.0
         elif self.stamina <= 30:
@@ -45,7 +46,6 @@ class Courier:
             Mresistencia = 1.0
 
         final_speed = (self.base_speed * climate_mult * Mpeso * Mrep * Mresistencia * surface_weight)
-
         if Mresistencia == 0:
             return
 
@@ -57,6 +57,7 @@ class Courier:
         total_cost = (base_stamina_cost + extra_weight_penalty) * stamina_cost_modifier
         self.stamina = max(0, self.stamina - total_cost)
 
+    # ---------- Inventario ----------
     def can_pickup_job(self, job):
         return self.inventory.can_add_job(job)
 
@@ -84,19 +85,34 @@ class Courier:
     def get_job_count(self):
         return self.inventory.get_job_count()
 
-    def gain_stamina(self, amount):
-        self.stamina = min(self.stamina + amount, self.max_stamina)
+    # ---------- Reputación / Racha ----------
+    def update_reputation(self, delta: int) -> bool:
+        """
+        Aplica delta y gestiona racha:
+          - si delta >= 0 → incrementa racha; si llega a 3 → bono +2 y resetea.
+          - si delta < 0 → resetea racha.
+        Devuelve True si la reputación cae por debajo de 20 (derrota).
+        """
+        if delta >= 0:
+            self._clean_streak += 1
+        else:
+            self._clean_streak = 0
 
-    def can_move(self):
-        return self.stamina > 0
+        # Aplica delta base
+        self.reputation = max(0, min(100, self.reputation + delta))
 
-    def update_reputation(self, change):
-        self.reputation = max(0, min(100, self.reputation + change))
+        # Bono por racha de 3 entregas sin penalización
+        if self._clean_streak >= 3:
+            self.reputation = min(100, self.reputation + 2)
+            self._clean_streak = 0
+            print("🔥 Racha de 3 entregas sin penalización: reputación +2")
+
         return self.reputation < 20
 
     def get_reputation_multiplier(self):
         return 1.05 if self.reputation >= 90 else 1.0
 
+    # ---------- Save/Load ----------
     def get_save_state(self):
         return {
             "x": self.x,
@@ -106,16 +122,19 @@ class Courier:
             "reputation": self.reputation,
             "packages_delivered": self.packages_delivered,
             "current_weight": self.current_weight,
+            "_clean_streak": self._clean_streak,
         }
 
     def load_state(self, state):
         self.x = state.get("x", 0)
         self.y = state.get("y", 0)
         self.stamina = state.get("stamina", self.max_stamina)
-        self.income = state.get("income", 0)
+        self.income = state.get("income", 0.0)
         self.reputation = state.get("reputation", 70)
         self.packages_delivered = state.get("packages_delivered", 0)
+        self._clean_streak = state.get("_clean_streak", 0)
 
+    # ---------- Render ----------
     def draw(self, screen, TILE_SIZE):
         if self.image:
             screen.blit(self.image, (self.x * TILE_SIZE, self.y * TILE_SIZE))
@@ -123,7 +142,6 @@ class Courier:
     def get_status_info(self):
         current_job = self.get_current_job()
         job_info = current_job.id if current_job else "Ninguno"
-        
         return {
             "position": (self.x, self.y),
             "stamina": f"{self.stamina}/{self.max_stamina}",
