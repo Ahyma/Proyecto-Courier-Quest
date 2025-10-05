@@ -1,104 +1,142 @@
-# src/game/courier.py
 import pygame
-from collections import deque
+from .inventory import Inventory
 
 class Courier:
-    def __init__(self, start_x, start_y, image=None, max_stamina=100, base_speed_cps=3.0):
-        self.x, self.y = start_x, start_y
+    def __init__(self, start_x, start_y, image,
+                 max_stamina=100, base_speed=3.0, max_weight=10):
+        self.x = start_x
+        self.y = start_y
         self.image = image
 
-        # Estado base
-        self.max_stamina = max_stamina
+        self.base_speed = base_speed
         self.stamina = max_stamina
+        self.max_stamina = max_stamina
+        self.income = 0
         self.reputation = 70
-        self.money = 0.0
+        self.max_weight = max_weight
+        
+        self.inventory = Inventory(max_weight)
+        self.packages_delivered = 0
 
-        # Movimiento
-        self.v0 = base_speed_cps            # celdas/seg
-        self._exhausted_lock = False        # si llegó a 0, queda bloqueado hasta 30
+    @property
+    def current_weight(self):
+        return self.inventory.current_weight
 
-        # Inventario
-        self.inventory = deque()            # lista de pedidos aceptados
-        self.max_weight = 6                 # peso máximo transportable
-
-    # ---- Inventario
-    def total_weight(self):
-        return sum(item.get("weight",0) for item in self.inventory)
-
-    def can_accept(self, job):
-        return self.total_weight() + job.get("weight",0) <= self.max_weight
-
-    def accept_job(self, job):
-        if self.can_accept(job):
-            self.inventory.append(job)
-            return True
-        return False
-
-    def rotate_forward(self):
-        if self.inventory:
-            self.inventory.rotate(-1)
-
-    def rotate_backward(self):
-        if self.inventory:
-            self.inventory.rotate(1)
-
-    # ---- Modificadores de velocidad (enunciado §8)
-    def stamina_state_mult(self):
+    @property
+    def stamina_state(self):
         if self.stamina <= 0:
-            return 0.0
-        if self.stamina < 30:
-            return 0.8
-        return 1.0
+            return "exhausto"
+        elif self.stamina <= 30:
+            return "cansado"
+        else:
+            return "normal"
 
-    def weight_mult(self):
-        w = self.total_weight()
-        return max(0.8, 1 - 0.03*max(0, w))
+    def move(self, dx, dy, stamina_cost_modifier=1.0, surface_weight=1.0,
+             climate_mult=1.0):
+        # Multiplicadores
+        Mpeso = max(0.8, 1 - 0.03 * self.current_weight)
+        Mrep = 1.03 if self.reputation >= 90 else 1.0
+        
+        if self.stamina <= 0:
+            Mresistencia = 0.0
+        elif self.stamina <= 30:
+            Mresistencia = 0.8
+        else:
+            Mresistencia = 1.0
 
-    def rep_mult(self):
-        return 1.03 if self.reputation >= 90 else 1.0
+        final_speed = (self.base_speed * climate_mult * Mpeso * Mrep * Mresistencia * surface_weight)
 
-    def speed(self, m_clima, m_surface):
-        return self.v0 * m_clima * self.weight_mult() * self.rep_mult() * self.stamina_state_mult() * m_surface
+        if Mresistencia == 0:
+            return
 
-    # ---- Consumo/recuperación de resistencia (enunciado §6)
-    def _consume_per_cell(self, clima_label):
-        base = 0.5
-        extra = 0.0
-        w = self.total_weight()
-        if w > 3:
-            extra += 0.2*(w-3)
-        if clima_label in ("rain","wind"): extra += 0.1
-        elif clima_label == "storm":       extra += 0.3
-        elif clima_label == "heat":        extra += 0.2
-        return base + extra
+        self.x += dx
+        self.y += dy
+
+        base_stamina_cost = 0.5
+        extra_weight_penalty = 0.2 * max(0, self.current_weight - 3)
+        total_cost = (base_stamina_cost + extra_weight_penalty) * stamina_cost_modifier
+        self.stamina = max(0, self.stamina - total_cost)
+
+    def can_pickup_job(self, job):
+        return self.inventory.can_add_job(job)
+
+    def pickup_job(self, job):
+        return self.inventory.add_job(job)
+
+    def deliver_current_job(self):
+        delivered_job = self.inventory.remove_current_job()
+        if delivered_job:
+            self.packages_delivered += 1
+        return delivered_job
+
+    def get_current_job(self):
+        return self.inventory.current_job
+
+    def next_job(self):
+        return self.inventory.next_job()
+
+    def previous_job(self):
+        return self.inventory.previous_job()
+
+    def has_jobs(self):
+        return not self.inventory.is_empty()
+
+    def get_job_count(self):
+        return self.inventory.get_job_count()
+
+    def gain_stamina(self, amount):
+        self.stamina = min(self.stamina + amount, self.max_stamina)
 
     def can_move(self):
-        # Si alguna vez llegó a 0, no puede moverse hasta recuperar 30
-        if self._exhausted_lock:
-            return self.stamina >= 30
         return self.stamina > 0
 
-    def step_to(self, nx, ny, clima_label, m_surface):
-        if not self.can_move():
-            return False
-        self.x, self.y = nx, ny
-        self.stamina -= self._consume_per_cell(clima_label)
-        if self.stamina <= 0:
-            self.stamina = 0
-            self._exhausted_lock = True
-        return True
+    def update_reputation(self, change):
+        self.reputation = max(0, min(100, self.reputation + change))
+        return self.reputation < 20
 
-    def rest(self, dt_seconds, boosted=False):
-        gain = 10 if boosted else 5
-        self.stamina = min(self.max_stamina, self.stamina + gain*dt_seconds)
-        if self.stamina >= 30:
-            self._exhausted_lock = False
+    def get_reputation_multiplier(self):
+        return 1.05 if self.reputation >= 90 else 1.0
 
-    # ---- Dibujado
-    def draw(self, screen, TILE):
+    def get_save_state(self):
+        return {
+            "x": self.x,
+            "y": self.y,
+            "stamina": self.stamina,
+            "income": self.income,
+            "reputation": self.reputation,
+            "packages_delivered": self.packages_delivered,
+            "current_weight": self.current_weight,
+        }
+
+    def load_state(self, state):
+        self.x = state.get("x", 0)
+        self.y = state.get("y", 0)
+        self.stamina = state.get("stamina", self.max_stamina)
+        self.income = state.get("income", 0)
+        self.reputation = state.get("reputation", 70)
+        self.packages_delivered = state.get("packages_delivered", 0)
+
+    def draw(self, screen, TILE_SIZE):
         if self.image:
-            screen.blit(self.image, (self.x*TILE, self.y*TILE))
-        else:
-            pygame.draw.circle(screen, (255,0,0),
-                               (self.x*TILE+TILE//2, self.y*TILE+TILE//2),
-                               TILE//2)
+            screen.blit(self.image, (self.x * TILE_SIZE, self.y * TILE_SIZE))
+
+    def get_status_info(self):
+        current_job = self.get_current_job()
+        job_info = current_job.id if current_job else "Ninguno"
+        
+        return {
+            "position": (self.x, self.y),
+            "stamina": f"{self.stamina}/{self.max_stamina}",
+            "income": self.income,
+            "reputation": self.reputation,
+            "weight": f"{self.current_weight}/{self.max_weight}kg",
+            "current_job": job_info,
+            "total_jobs": self.get_job_count(),
+            "delivered": self.packages_delivered,
+            "state": self.stamina_state
+        }
+
+    def __str__(self):
+        return (f"Courier(pos=({self.x},{self.y}), stamina={self.stamina}, "
+                f"income=${self.income}, rep={self.reputation}, "
+                f"jobs={self.get_job_count()}/{self.max_weight}kg)")
