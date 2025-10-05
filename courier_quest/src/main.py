@@ -14,13 +14,12 @@ from game.save_game import save_slot, load_slot
 from game.score_board import save_score, load_scores
 from game.hud import HUD
 from game.jobs_manager import JobsManager
-from game.reputation import ReputationSystem  # ⬅️ para deltas de reputación (cancel/expired)
-from game.notifications import NotificationsOverlay  # ⬅️ NUEVO: overlay de notificaciones
+from game.reputation import ReputationSystem
+from game.notifications import NotificationsOverlay
+from game.undo import UndoStack
 
 
-# ------------------ CARGA DE IMÁGENES ------------------
 def load_building_images():
-    """Carga y devuelve un diccionario de imágenes de edificios por su tamaño."""
     building_images = {}
     image_names = {
         (3, 8): "edificio3x8.png",
@@ -44,7 +43,6 @@ def load_building_images():
 
 
 def load_street_images():
-    """Carga la imagen única del patrón de calle (calle.png)."""
     base_path = "images"
     street_images = {}
 
@@ -59,16 +57,12 @@ def load_street_images():
     return street_images
 
 
-# ------------------ JUEGO ------------------
 def main():
-    # Inicialización de Pygame
     pygame.init()
 
-    # API + Cache
     api_cache = APICache()
     api_client = APIClient(api_cache)
 
-    # Carga de datos
     map_data = api_client.get_map_data()
     jobs_data = api_client.get_jobs_data()
     weather_data = api_client.get_weather_data()
@@ -78,31 +72,25 @@ def main():
         pygame.quit()
         sys.exit()
 
-    # Info de mapa
     map_info = map_data.get("data", {})
     game_start_time = datetime.fromisoformat(map_info.get("start_time", "2025-09-01T12:00:00Z"))
     jobs_manager = JobsManager(jobs_data, game_start_time)
 
-    # Tamaño pantalla dinámico
     map_tile_width = map_info.get("width", 20)
     map_tile_height = map_info.get("height", 15)
     SCREEN_WIDTH = map_tile_width * TILE_SIZE
     SCREEN_HEIGHT = map_tile_height * TILE_SIZE
 
-    # Ventana
     screen_size = (SCREEN_WIDTH + PANEL_WIDTH, SCREEN_HEIGHT)
     screen = pygame.display.set_mode(screen_size)
     pygame.display.set_caption("Courier Quest")
 
-    # Reloj
     clock = pygame.time.Clock()
     FPS = 60
 
-    # Imágenes
     building_images = load_building_images()
     street_images = load_street_images()
 
-    # Césped
     try:
         cesped_image = pygame.image.load(os.path.join("images", "cesped.png")).convert_alpha()
         cesped_image = pygame.transform.scale(cesped_image, (TILE_SIZE, TILE_SIZE))
@@ -110,7 +98,6 @@ def main():
         print(f"Error al cargar la imagen del césped: {e}")
         cesped_image = None
 
-    # Repartidor
     try:
         repartidor_image = pygame.image.load(os.path.join("images", "repartidor.png")).convert_alpha()
         repartidor_image = pygame.transform.scale(repartidor_image, (TILE_SIZE, TILE_SIZE))
@@ -118,7 +105,6 @@ def main():
         print(f"Error al cargar la imagen del repartidor: {e}")
         repartidor_image = None
 
-    # Mundo y sistemas
     game_world = World(
         map_data=map_data,
         building_images=building_images,
@@ -130,14 +116,49 @@ def main():
     weather_manager = WeatherManager(weather_data)
     weather_visuals = WeatherVisuals((SCREEN_WIDTH, SCREEN_HEIGHT), TILE_SIZE)
 
-    # HUD
     hud_area = pygame.Rect(SCREEN_WIDTH, 0, PANEL_WIDTH, SCREEN_HEIGHT)
     hud = HUD(hud_area, SCREEN_HEIGHT, TILE_SIZE)
 
-    # NUEVO: overlay de notificaciones (se dibuja dentro del panel/HUD)
     notifier = NotificationsOverlay(panel_width=PANEL_WIDTH, screen_height=SCREEN_HEIGHT)
 
-    # Generar pedidos si no hay JSON utilizable
+    undo_stack = UndoStack(limit=20)
+
+    def save_game_state():
+        game_state = {
+            "courier": {
+                "x": courier.x,
+                "y": courier.y,
+                "stamina": courier.stamina,
+                "income": courier.income,
+                "reputation": courier.reputation,
+                "packages_delivered": courier.packages_delivered,
+                "_clean_streak": courier._clean_streak,
+            },
+            "elapsed_time": elapsed_time,
+            "weather_condition": weather_manager.current_condition,
+            "weather_intensity": weather_manager.current_intensity,
+        }
+        undo_stack.push(game_state)
+
+    def calculate_final_score(courier, elapsed_time, max_time, goal_income):
+        score_base = courier.income
+        
+        reputation_bonus = 0
+        if courier.reputation >= 90:
+            reputation_bonus = score_base * 0.05
+            score_base += reputation_bonus
+        
+        time_bonus = 0
+        remaining_time = max_time - elapsed_time
+        if remaining_time > (max_time * 0.2) and courier.income >= goal_income:
+            time_bonus = remaining_time * 0.1
+            print(f"⏰ Bonus por tiempo: +${time_bonus:.0f}")
+        
+        cancellation_penalty = 0
+        
+        final_score = score_base + time_bonus - cancellation_penalty
+        return max(0, final_score), time_bonus, reputation_bonus, cancellation_penalty
+
     if not jobs_data or not jobs_data.get("data"):
         print("📦 Forzando generación de nuevos pedidos...")
         jobs_manager.generate_random_jobs(game_world, num_jobs=10)
@@ -153,86 +174,118 @@ def main():
         print(f"   Total de pedidos: {len(jobs_manager.all_jobs)}")
         print(f"   Pedidos disponibles: {len(jobs_manager.available_jobs)}")
 
-    # Tiempo/meta
     elapsed_time = 0.0
-    max_time = map_info.get("max_time", 900)  # s
+    max_time = map_info.get("max_time", 900)
     goal_income = map_info.get("goal", 0)
 
-    # Bucle principal
     running = True
+
+    keys_pressed = {
+        pygame.K_UP: False,
+        pygame.K_DOWN: False,
+        pygame.K_LEFT: False,
+        pygame.K_RIGHT: False
+    }
+    move_cooldown = 0.0
+    MOVE_COOLDOWN_TIME = 0.1
+
     while running:
         delta_time = clock.tick(FPS) / 1000.0
         elapsed_time += delta_time
         remaining_time = max_time - elapsed_time
 
-        # Condiciones fin de juego
+        current_tile_type = game_world.tiles[courier.y][courier.x] if (0 <= courier.y < game_world.height and 0 <= courier.x < game_world.width) else "C"
+        is_resting_spot = (current_tile_type == "P")
+        
+        courier.recover_stamina(delta_time, is_resting_spot)
+
         if remaining_time <= 0:
             print("Game Over: se acabó el tiempo.")
-            # ⬇️ Guardar score también en derrota por tiempo
-            final_score = courier.income * (1.05 if courier.reputation >= 90 else 1.0)
+            final_score, time_bonus, reputation_bonus, penalties = calculate_final_score(courier, elapsed_time, max_time, goal_income)
             save_score({
                 "score": round(final_score, 2),
                 "income": round(courier.income, 2),
                 "time": round(elapsed_time, 2),
                 "reputation": int(courier.reputation),
+                "time_bonus": round(time_bonus, 2),
+                "reputation_bonus": round(reputation_bonus, 2),
+                "penalties": round(penalties, 2)
             })
             notifier.error("Tiempo agotado — partida guardada")
             running = False
 
         if courier.reputation < 20 and running:
             print("Game Over: reputación muy baja.")
-            # ⬇️ Guardar score también en derrota por reputación
-            final_score = courier.income * (1.05 if courier.reputation >= 90 else 1.0)
+            final_score, time_bonus, reputation_bonus, penalties = calculate_final_score(courier, elapsed_time, max_time, goal_income)
             save_score({
                 "score": round(final_score, 2),
                 "income": round(courier.income, 2),
                 "time": round(elapsed_time, 2),
                 "reputation": int(courier.reputation),
+                "time_bonus": round(time_bonus, 2),
+                "reputation_bonus": round(reputation_bonus, 2),
+                "penalties": round(penalties, 2)
             })
             notifier.error("Derrota: reputación < 20 — partida guardada")
             running = False
 
         if courier.income >= goal_income and goal_income > 0 and running:
             print("¡Victoria! Meta alcanzada.")
-            final_score = courier.income
-            if courier.reputation >= 90:
-                final_score *= 1.05  # Bono por reputación alta (muestra final)
+            
+            final_score, time_bonus, reputation_bonus, penalties = calculate_final_score(courier, elapsed_time, max_time, goal_income)
+            
+            print(f"💰 Score base: ${courier.income:.0f}")
+            if reputation_bonus > 0:
+                print(f"⭐ Bonus reputación: +${reputation_bonus:.0f}")
+            if time_bonus > 0:
+                print(f"⏰ Bonus tiempo: +${time_bonus:.0f}")
+            if penalties > 0:
+                print(f"⚠️  Penalizaciones: -${penalties:.0f}")
+            print(f"🏆 Score final: ${final_score:.0f}")
+            
             save_score({
                 "score": round(final_score, 2),
                 "income": round(courier.income, 2),
                 "time": round(elapsed_time, 2),
                 "reputation": int(courier.reputation),
+                "time_bonus": round(time_bonus, 2),
+                "reputation_bonus": round(reputation_bonus, 2),
+                "penalties": round(penalties, 2)
             })
             notifier.success("¡Meta alcanzada! Score guardado")
             running = False
 
-        # Actualizaciones del estado
-        courier_pos = (courier.x, courier.y)
-        jobs_manager.update(elapsed_time, courier_pos)
-        weather_manager.update(delta_time)
-
-        # Debug periódico
-        if int(elapsed_time) % 30 == 0 and int(elapsed_time) > 0:
-            print(f"⏰ Tiempo: {int(elapsed_time)}s | Pedidos disponibles: {len(jobs_manager.available_jobs)}")
-
-        # Eventos
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
 
             elif event.type == pygame.KEYDOWN:
-                dx, dy = 0, 0
-                if event.key == pygame.K_UP:
-                    dy = -1
-                elif event.key == pygame.K_DOWN:
-                    dy = 1
-                elif event.key == pygame.K_LEFT:
-                    dx = -1
-                elif event.key == pygame.K_RIGHT:
-                    dx = 1
+                if event.key in keys_pressed:
+                    keys_pressed[event.key] = True
+                    
+                elif event.key == pygame.K_z and pygame.key.get_mods() & pygame.KMOD_CTRL:
+                    saved_state = undo_stack.pop()
+                    if saved_state:
+                        courier.x = saved_state["courier"]["x"]
+                        courier.y = saved_state["courier"]["y"]
+                        courier.stamina = saved_state["courier"]["stamina"]
+                        courier.income = saved_state["courier"]["income"]
+                        courier.reputation = saved_state["courier"]["reputation"]
+                        courier.packages_delivered = saved_state["courier"]["packages_delivered"]
+                        courier._clean_streak = saved_state["courier"]["_clean_streak"]
+                        
+                        elapsed_time = saved_state["elapsed_time"]
+                        
+                        weather_manager.current_condition = saved_state["weather_condition"]
+                        weather_manager.current_intensity = saved_state["weather_intensity"]
+                        
+                        print("↩️  Deshecho último movimiento")
+                        notifier.info("Deshecho último movimiento")
+                    else:
+                        print("❌ No hay acciones para deshacer")
+                        notifier.warn("No hay acciones para deshacer")
 
-                # --- Pedidos ---
-                elif event.key == pygame.K_SPACE:  # Recoger
+                elif event.key == pygame.K_SPACE:
                     try:
                         nearby_jobs = jobs_manager.get_available_jobs_nearby(courier_pos, max_distance=1)
                         pickup_success = False
@@ -250,14 +303,12 @@ def main():
                         print(f"Error en recogida: {e}")
                         notifier.error("Error al recoger")
 
-                elif event.key == pygame.K_e:  # Entregar
+                elif event.key == pygame.K_e:
                     if not courier.inventory.is_empty():
-                        # Guardamos referencia por si expira justo antes de entregar
                         _before = courier.inventory.current_job
                         delivered_job = jobs_manager.try_deliver_job(courier.inventory, courier_pos, elapsed_time)
 
                         if delivered_job:
-                            # Bono por reputación se toma del Courier (por si en el futuro cambia)
                             mult = courier.get_reputation_multiplier()
                             base_payout = delivered_job.payout * mult
                             if mult > 1.0:
@@ -266,7 +317,6 @@ def main():
 
                             courier.income += base_payout
 
-                            # Reputación según puntualidad (y racha interna del Courier)
                             reputation_change = delivered_job.calculate_reputation_change()
                             new_rep_below_20 = courier.update_reputation(reputation_change)
                             if reputation_change != 0:
@@ -280,35 +330,37 @@ def main():
 
                             if new_rep_below_20:
                                 print("Game Over: reputación muy baja.")
-                                # ⬇️ Guardar score también en derrota inmediata
-                                final_score = courier.income * (1.05 if courier.reputation >= 90 else 1.0)
+                                final_score, time_bonus, reputation_bonus, penalties = calculate_final_score(courier, elapsed_time, max_time, goal_income)
                                 save_score({
                                     "score": round(final_score, 2),
                                     "income": round(courier.income, 2),
                                     "time": round(elapsed_time, 2),
                                     "reputation": int(courier.reputation),
+                                    "time_bonus": round(time_bonus, 2),
+                                    "reputation_bonus": round(reputation_bonus, 2),
+                                    "penalties": round(penalties, 2)
                                 })
                                 notifier.error("Derrota: reputación < 20 — partida guardada")
                                 running = False
                         else:
-                            # Si no se entregó y el job se marcó como expirado dentro de try_deliver_job,
-                            # aplicamos penalización -6.
                             if _before and _before.state == "expired":
                                 delta = ReputationSystem.for_delivery(
-                                    # status "expired" para usar la tabla (-6)
-                                    res=type("R", (), {"status": "expired"})()  # pequeño objeto con status
+                                    res=type("R", (), {"status": "expired"})()
                                 )
                                 new_rep_below_20 = courier.update_reputation(delta)
                                 print("⛔ Pedido expirado en inventario. Reputación -6 (total: {})".format(courier.reputation))
                                 notifier.error("Pedido expirado en inventario (-6 rep)")
                                 if new_rep_below_20:
                                     print("Game Over: reputación muy baja.")
-                                    final_score = courier.income * (1.05 if courier.reputation >= 90 else 1.0)
+                                    final_score, time_bonus, reputation_bonus, penalties = calculate_final_score(courier, elapsed_time, max_time, goal_income)
                                     save_score({
                                         "score": round(final_score, 2),
                                         "income": round(courier.income, 2),
                                         "time": round(elapsed_time, 2),
                                         "reputation": int(courier.reputation),
+                                        "time_bonus": round(time_bonus, 2),
+                                        "reputation_bonus": round(reputation_bonus, 2),
+                                        "penalties": round(penalties, 2)
                                     })
                                     notifier.error("Derrota: reputación < 20 — partida guardada")
                                     running = False
@@ -319,7 +371,7 @@ def main():
                         print("❌ No tienes pedidos para entregar")
                         notifier.warn("Inventario vacío")
 
-                elif event.key == pygame.K_TAB:  # Navegar inventario
+                elif event.key == pygame.K_TAB:
                     if pygame.key.get_mods() & pygame.KMOD_SHIFT:
                         courier.inventory.previous_job()
                         print("Pedido anterior seleccionado")
@@ -329,27 +381,29 @@ def main():
                         print("Siguiente pedido seleccionado")
                         notifier.info("Siguiente pedido")
 
-                elif event.key == pygame.K_c:  # Cancelar pedido actual
+                elif event.key == pygame.K_c:
                     current_job = courier.inventory.current_job
                     if current_job and current_job.cancel():
                         cancelled_job = courier.inventory.remove_current_job()
-                        delta = ReputationSystem.for_cancel()  # -4
+                        delta = ReputationSystem.for_cancel()
                         new_rep_below_20 = courier.update_reputation(delta)
                         print(f"⚠️ Pedido {cancelled_job.id} cancelado. Reputación {delta} (total: {courier.reputation})")
                         notifier.warn(f"Cancelado {cancelled_job.id} ({delta} rep)")
                         if new_rep_below_20:
                             print("Game Over: reputación muy baja.")
-                            final_score = courier.income * (1.05 if courier.reputation >= 90 else 1.0)
+                            final_score, time_bonus, reputation_bonus, penalties = calculate_final_score(courier, elapsed_time, max_time, goal_income)
                             save_score({
                                 "score": round(final_score, 2),
                                 "income": round(courier.income, 2),
                                 "time": round(elapsed_time, 2),
                                 "reputation": int(courier.reputation),
+                                "time_bonus": round(time_bonus, 2),
+                                "reputation_bonus": round(reputation_bonus, 2),
+                                "penalties": round(penalties, 2)
                             })
                             notifier.error("Derrota: reputación < 20 — partida guardada")
                             running = False
 
-                # --- NUEVO: Ver pedidos cercanos ---
                 elif event.key == pygame.K_a:
                     try:
                         nearby = jobs_manager.get_available_jobs_nearby(courier_pos, max_distance=3)
@@ -359,7 +413,6 @@ def main():
                         else:
                             print(f"🔎 Pedidos cercanos ({len(nearby)}):")
                             for j in nearby:
-                                # Tiempo restante si Job lo soporta
                                 tl = None
                                 if hasattr(j, "get_time_until_deadline"):
                                     try:
@@ -373,29 +426,27 @@ def main():
                         print(f"Error al listar pedidos cercanos: {e}")
                         notifier.error("Error listando pedidos cercanos")
 
-                # --- Ordenamiento real ---
-                elif event.key == pygame.K_F1:  # Prioridad
+                elif event.key == pygame.K_F1:
                     if not courier.inventory.is_empty():
                         courier.inventory.apply_sort("priority")
                         print("📊 Inventario reordenado por PRIORIDAD")
                         notifier.info("Ordenado por PRIORIDAD")
-                elif event.key == pygame.K_F2:  # Deadline
+                elif event.key == pygame.K_F2:
                     if not courier.inventory.is_empty():
                         courier.inventory.apply_sort("deadline", current_game_time=elapsed_time)
                         print("⏰ Inventario reordenado por DEADLINE")
                         notifier.info("Ordenado por DEADLINE")
-                elif event.key == pygame.K_F3:  # Pago
+                elif event.key == pygame.K_F3:
                     if not courier.inventory.is_empty():
                         courier.inventory.apply_sort("payout")
                         print("💰 Inventario reordenado por PAGO")
                         notifier.info("Ordenado por PAGO")
-                elif event.key == pygame.K_F4:  # Original
+                elif event.key == pygame.K_F4:
                     if not courier.inventory.is_empty():
                         courier.inventory.apply_sort("original")
                         print("🔄 Orden ORIGINAL restaurada")
                         notifier.info("Orden ORIGINAL")
 
-                # --- Guardado/Carga ---
                 elif event.key == pygame.K_s and pygame.key.get_mods() & pygame.KMOD_CTRL:
                     data_to_save = {"courier": courier.get_save_state(), "elapsed_time": elapsed_time}
                     save_slot("slot1.sav", data_to_save)
@@ -417,35 +468,60 @@ def main():
                         print("No se encontró 'slot1.sav'.")
                         notifier.error("No existe 'slot1.sav'")
 
-                # Movimiento (aplica clima y coste de estamina/superficie)
-                if dx != 0 or dy != 0:
-                    stamina_cost_modifier = weather_manager.get_stamina_cost_multiplier()
-                    climate_mult = weather_manager.get_speed_multiplier()
-                    new_x, new_y = courier.x + dx, courier.y + dy
+            elif event.type == pygame.KEYUP:
+                if event.key in keys_pressed:
+                    keys_pressed[event.key] = False
 
-                    if game_world.is_walkable(new_x, new_y):
-                        surface_weight = game_world.surface_weight_at(new_x, new_y)
-                        courier.move(
-                            dx,
-                            dy,
-                            stamina_cost_modifier=stamina_cost_modifier,
-                            surface_weight=surface_weight,
-                            climate_mult=climate_mult,
-                        )
+        dx, dy = 0, 0
 
-        # ---------- RENDER ----------
+        if keys_pressed[pygame.K_UP]:
+            dy = -1
+        elif keys_pressed[pygame.K_DOWN]:
+            dy = 1
+
+        if keys_pressed[pygame.K_LEFT]:
+            dx = -1
+        elif keys_pressed[pygame.K_RIGHT]:
+            dx = 1
+
+        if (dx != 0 or dy != 0) and move_cooldown <= 0:
+            save_game_state()
+            
+            stamina_cost_modifier = weather_manager.get_stamina_cost_multiplier()
+            climate_mult = weather_manager.get_speed_multiplier()
+            new_x, new_y = courier.x + dx, courier.y + dy
+
+            if game_world.is_walkable(new_x, new_y):
+                surface_weight = game_world.surface_weight_at(new_x, new_y)
+                courier.move(
+                    dx,
+                    dy,
+                    stamina_cost_modifier=stamina_cost_modifier,
+                    surface_weight=surface_weight,
+                    climate_mult=climate_mult,
+                )
+                move_cooldown = MOVE_COOLDOWN_TIME
+
+        if move_cooldown > 0:
+            move_cooldown -= delta_time
+
+        courier_pos = (courier.x, courier.y)
+        jobs_manager.update(elapsed_time, courier_pos)
+        weather_manager.update(delta_time)
+
+        if int(elapsed_time) % 30 == 0 and int(elapsed_time) > 0:
+            print(f"⏰ Tiempo: {int(elapsed_time)}s | Pedidos disponibles: {len(jobs_manager.available_jobs)}")
+
         screen.fill((0, 0, 0))
         game_world.draw(screen)
         jobs_manager.draw_job_markers(screen, TILE_SIZE, courier_pos)
         courier.draw(screen, TILE_SIZE)
 
-        # Clima
         current_condition = weather_manager.get_current_condition()
         current_intensity = weather_manager.get_current_intensity()
         weather_visuals.update(delta_time, current_condition, current_intensity)
         weather_visuals.draw(screen)
 
-        # Flags HUD (pickup/entrega cercanos, adyacencia ortogonal)
         near_pickup = False
         near_dropoff = False
         if not courier.inventory.is_empty():
@@ -456,7 +532,8 @@ def main():
                 if abs(courier.x - job.dropoff_pos[0]) + abs(courier.y - job.dropoff_pos[1]) == 1:
                     near_dropoff = True
 
-        # HUD
+        current_surface_weight = game_world.surface_weight_at(courier.x, courier.y)
+
         current_speed_mult = weather_manager.get_speed_multiplier()
         hud.draw(
             screen,
@@ -467,10 +544,10 @@ def main():
             goal_income,
             near_pickup,
             near_dropoff,
-            current_game_time=elapsed_time  # ⬅️ NUEVO: para tiempo restante del pedido en la card
+            current_game_time=elapsed_time,
+            current_surface_weight=current_surface_weight
         )
 
-        # NUEVO: overlay de notificaciones (sobre el panel/HUD)
         notifier.update(delta_time)
         notifier.draw(screen, hud_area)
 

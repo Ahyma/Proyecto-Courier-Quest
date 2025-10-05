@@ -33,8 +33,7 @@ class NotificationsOverlay:
             self.font = pygame.font.Font(None, 18)
 
         # Posicionado: esquina superior derecha del HUD/panel
-        # (El panel es el área a la derecha, donde está el HUD.)
-        self.anchor_x = 0  # se ajusta en draw() con el rect real
+        self.anchor_x = 0
         self.anchor_y = 0
         self.screen_h = screen_height
 

@@ -52,6 +52,7 @@ class HUD:
         self.system = [
             "Ctrl+S: Guardar",
             "Ctrl+L: Cargar",
+            "Ctrl+Z: Deshacer"  # NUEVO: agregado deshacer
         ]
 
     def _font(self, size):
@@ -78,24 +79,21 @@ class HUD:
         surf.blit(line, (self.rect.left + self.PAD, y))
         return 1
 
-    # --------- NUEVO: helper para formatear segs ---------
     def _fmt_secs(self, secs: float) -> str:
         secs = max(0, int(secs))
         m = secs // 60
         s = secs % 60
         return f"{m:02d}:{s:02d}"
 
-    # --------- NUEVO: badge de prioridad en la card ---------
     def _draw_priority_badge(self, screen, x, y, level: int):
-        # colores suaves por nivel (0 bajo, 1 medio, 2 alto)
         if level >= 2:
-            col = (255, 120, 120)   # alto
+            col = (255, 120, 120)
             txt = "PRIO 2"
         elif level == 1:
-            col = (255, 200, 120)   # medio
+            col = (255, 200, 120)
             txt = "PRIO 1"
         else:
-            col = (180, 220, 255)   # bajo
+            col = (180, 220, 255)
             txt = "PRIO 0"
 
         pad_h = 4
@@ -166,7 +164,6 @@ class HUD:
 
         yy = y + self.CARD_PAD
         yy += self._blit(screen, "PEDIDO ACTUAL:", self.f, self.hl, x + self.CARD_PAD, yy)
-        # Badge de prioridad (nuevo) alineado a la derecha de la card
         try:
             prio = int(getattr(job, "priority", 0))
         except Exception:
@@ -176,11 +173,9 @@ class HUD:
         yy += self._blit(screen, f"ID: {job.id}", self.f, self.tx, x + self.CARD_PAD, yy)
         yy += self._blit(screen, f"Pago: ${job.payout:.1f}", self.f, self.tx, x + self.CARD_PAD, yy)
 
-        # Tiempo restante (nuevo) sólo si podemos calcularlo
         if current_game_time is not None and hasattr(job, "get_time_until_deadline"):
             try:
                 tl = float(job.get_time_until_deadline(current_game_time))
-                # Colores: rojo 0s, ámbar <60s, blanco en otro caso
                 tcol = self.warn if tl <= 0 else (self.hl if tl < 60 else self.tx)
                 yy += self._blit(screen, f"Tiempo restante: {self._fmt_secs(tl)}", self.f, tcol, x + self.CARD_PAD, yy)
             except Exception:
@@ -190,7 +185,8 @@ class HUD:
 
     def draw(self, screen, courier, weather_condition, speed_multiplier,
              remaining_time=0, goal_income=0, near_pickup=False, near_dropoff=False,
-             current_game_time=None):  # <-- NUEVO parámetro opcional (compat)
+             current_game_time=None, current_surface_weight=1.0):  # NUEVO: parámetro agregado
+
         pygame.draw.rect(screen, self.bg, self.rect)
         pad = self.PAD
         x = self.rect.left + pad
@@ -238,7 +234,7 @@ class HUD:
         y += self._blit(screen, f"Reputación: {rep}", self.f, rcol, x, y)
         y += self.SEC_GAP + self._div(screen, y)
 
-        # Inventario (solo mensaje)
+        # Inventario
         y += self.SEC_GAP
         y += self._blit(screen, "--- Inventario ---", self.fs, self.tx, x, y)
         if hasattr(courier, "has_jobs") and courier.has_jobs():
@@ -254,6 +250,9 @@ class HUD:
         y += self.VR_GAP
         y += self._blit(screen, f"Condición: {weather_display}", self.fs, self.tx, x, y)
         y += self._blit(screen, f"Velocidad: {int(speed_multiplier*100)}%", self.fs, self.tx, x, y)
+        
+        # NUEVO: Mostrar efecto de superficie
+        y += self._blit(screen, f"Superficie: {int(current_surface_weight*100)}%", self.fs, self.tx, x, y)
 
         # --- FOOTER y CARD ---
         bottom = self.rect.bottom - self.PAD
@@ -268,7 +267,6 @@ class HUD:
         pygame.draw.rect(screen, self.bg,
                          pygame.Rect(self.rect.left, est_top, self.rect.width, bottom - est_top))
 
-        # Mostrar solo una versión del pedido
         if hasattr(courier, "has_jobs") and courier.has_jobs():
             job = courier.get_current_job()
             if job and (est_top - y) > self.CARD_H_MIN + self.SEC_GAP:

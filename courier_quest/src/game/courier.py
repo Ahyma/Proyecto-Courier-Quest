@@ -19,7 +19,13 @@ class Courier:
         self.packages_delivered = 0
 
         # Racha de entregas sin penalización
-        self._clean_streak = 0  # cuenta entregas con delta de reputación >= 0
+        self._clean_streak = 0
+        
+        # NUEVO: Control de recuperación y estado exhausto
+        self.is_exhausted = False
+        self.recovery_rate_normal = 5.0  # +5 por segundo
+        self.recovery_rate_resting = 10.0  # +10 por segundo en puntos de descanso
+        self.exhaustion_threshold = 0.3 * max_stamina  # 30% para recuperarse
 
     @property
     def current_weight(self):
@@ -27,7 +33,7 @@ class Courier:
 
     @property
     def stamina_state(self):
-        if self.stamina <= 0:
+        if self.is_exhausted:
             return "exhausto"
         elif self.stamina <= 30:
             return "cansado"
@@ -35,11 +41,19 @@ class Courier:
             return "normal"
 
     def move(self, dx, dy, stamina_cost_modifier=1.0, surface_weight=1.0, climate_mult=1.0):
+        # NUEVO: Verificar si está exhausto
+        if self.is_exhausted:
+            print("⚠️  Demasiado exhausto para moverse. Descansa para recuperarte.")
+            return
+        
         Mpeso = max(0.8, 1 - 0.03 * self.current_weight)
         Mrep = 1.03 if self.reputation >= 90 else 1.0
 
         if self.stamina <= 0:
             Mresistencia = 0.0
+            # NUEVO: Marcar como exhausto si se queda sin stamina
+            self.is_exhausted = True
+            print("💤 ¡Exhausto! Descansa para recuperarte hasta 30% de stamina.")
         elif self.stamina <= 30:
             Mresistencia = 0.8
         else:
@@ -56,6 +70,39 @@ class Courier:
         extra_weight_penalty = 0.2 * max(0, self.current_weight - 3)
         total_cost = (base_stamina_cost + extra_weight_penalty) * stamina_cost_modifier
         self.stamina = max(0, self.stamina - total_cost)
+        
+        # NUEVO: Actualizar estado exhausto si se queda sin stamina
+        if self.stamina <= 0:
+            self.is_exhausted = True
+
+    def recover_stamina(self, delta_time, is_resting_spot=False):
+        """
+        Recupera stamina con el tiempo.
+        
+        Args:
+            delta_time (float): Tiempo transcurrido en segundos
+            is_resting_spot (bool): Si está en un punto de descanso especial
+        """
+        if self.stamina >= self.max_stamina:
+            return  # Stamina ya está llena
+        
+        # Determinar tasa de recuperación
+        recovery_rate = self.recovery_rate_resting if is_resting_spot else self.recovery_rate_normal
+        
+        # Aplicar recuperación
+        new_stamina = self.stamina + (recovery_rate * delta_time)
+        
+        # Si estaba exhausto, solo recuperar hasta el umbral de 30%
+        if self.is_exhausted:
+            if new_stamina >= self.exhaustion_threshold:
+                self.is_exhausted = False
+                print("✅ ¡Recuperado! Ya puedes moverte otra vez.")
+            new_stamina = min(new_stamina, self.exhaustion_threshold)
+        else:
+            # Recuperación normal (hasta máximo)
+            new_stamina = min(new_stamina, self.max_stamina)
+        
+        self.stamina = new_stamina
 
     # ---------- Inventario ----------
     def can_pickup_job(self, job):
