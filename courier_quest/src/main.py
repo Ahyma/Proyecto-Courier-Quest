@@ -17,9 +17,12 @@ from game.jobs_manager import JobsManager
 from game.reputation import ReputationSystem
 from game.notifications import NotificationsOverlay
 from game.undo import UndoStack
+from game.menu import MainMenu  # NUEVO: Importar el menú
 
 
+# ------------------ CARGA DE IMÁGENES ------------------
 def load_building_images():
+    """Carga y devuelve un diccionario de imágenes de edificios por su tamaño."""
     building_images = {}
     image_names = {
         (3, 8): "edificio3x8.png",
@@ -43,6 +46,7 @@ def load_building_images():
 
 
 def load_street_images():
+    """Carga la imagen única del patrón de calle (calle.png)."""
     base_path = "images"
     street_images = {}
 
@@ -57,12 +61,16 @@ def load_street_images():
     return street_images
 
 
-def main():
-    pygame.init()
-
+# ------------------ FUNCIÓN DEL JUEGO PRINCIPAL ------------------
+def start_game(action):
+    """
+    Inicia el juego principal después del menú
+    """
+    # API + Cache
     api_cache = APICache()
     api_client = APIClient(api_cache)
 
+    # Carga de datos
     map_data = api_client.get_map_data()
     jobs_data = api_client.get_jobs_data()
     weather_data = api_client.get_weather_data()
@@ -72,18 +80,21 @@ def main():
         pygame.quit()
         sys.exit()
 
+    # Info de mapa
     map_info = map_data.get("data", {})
     game_start_time = datetime.fromisoformat(map_info.get("start_time", "2025-09-01T12:00:00Z"))
     jobs_manager = JobsManager(jobs_data, game_start_time)
 
+    # Tamaño pantalla dinámico basado en el mapa
     map_tile_width = map_info.get("width", 20)
     map_tile_height = map_info.get("height", 15)
     SCREEN_WIDTH = map_tile_width * TILE_SIZE
     SCREEN_HEIGHT = map_tile_height * TILE_SIZE
 
+    # Crear la ventana con el tamaño correcto
     screen_size = (SCREEN_WIDTH + PANEL_WIDTH, SCREEN_HEIGHT)
     screen = pygame.display.set_mode(screen_size)
-    pygame.display.set_caption("Courier Quest")
+    pygame.display.set_caption("Courier Quest - En Juego")
 
     clock = pygame.time.Clock()
     FPS = 60
@@ -124,6 +135,7 @@ def main():
     undo_stack = UndoStack(limit=20)
 
     def save_game_state():
+        """Guarda el estado actual del juego para poder deshacer"""
         game_state = {
             "courier": {
                 "x": courier.x,
@@ -141,6 +153,7 @@ def main():
         undo_stack.push(game_state)
 
     def calculate_final_score(courier, elapsed_time, max_time, goal_income):
+        """Calcula el puntaje final con bonus y penalizaciones"""
         score_base = courier.income
         
         reputation_bonus = 0
@@ -159,6 +172,7 @@ def main():
         final_score = score_base + time_bonus - cancellation_penalty
         return max(0, final_score), time_bonus, reputation_bonus, cancellation_penalty
 
+    # Generar pedidos si no hay JSON utilizable
     if not jobs_data or not jobs_data.get("data"):
         print("📦 Forzando generación de nuevos pedidos...")
         jobs_manager.generate_random_jobs(game_world, num_jobs=10)
@@ -178,8 +192,26 @@ def main():
     max_time = map_info.get("max_time", 900)
     goal_income = map_info.get("goal", 0)
 
+    # NUEVO: Si la acción es "load_game", cargar la partida guardada inmediatamente
+    if action == "load_game":
+        try:
+            loaded_data = load_slot("slot1.sav")
+            if loaded_data:
+                courier.load_state(loaded_data.get("courier", {}))
+                elapsed_time = loaded_data.get("elapsed_time", 0.0)
+                print("📂 Partida cargada desde el menú.")
+                notifier.success("Partida cargada")
+            else:
+                print("Archivo de guardado vacío o corrupto.")
+                notifier.error("Guardado vacío o corrupto")
+        except FileNotFoundError:
+            print("No se encontró 'slot1.sav'.")
+            notifier.error("No existe partida guardada")
+
+    # Bucle principal del juego
     running = True
 
+    # Variables para movimiento continuo
     keys_pressed = {
         pygame.K_UP: False,
         pygame.K_DOWN: False,
@@ -199,6 +231,7 @@ def main():
         
         courier.recover_stamina(delta_time, is_resting_spot)
 
+        # Condiciones fin de juego
         if remaining_time <= 0:
             print("Game Over: se acabó el tiempo.")
             final_score, time_bonus, reputation_bonus, penalties = calculate_final_score(courier, elapsed_time, max_time, goal_income)
@@ -255,6 +288,7 @@ def main():
             notifier.success("¡Meta alcanzada! Score guardado")
             running = False
 
+        # Eventos
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
@@ -472,6 +506,7 @@ def main():
                 if event.key in keys_pressed:
                     keys_pressed[event.key] = False
 
+        # MOVIMIENTO CONTINUO
         dx, dy = 0, 0
 
         if keys_pressed[pygame.K_UP]:
@@ -512,6 +547,7 @@ def main():
         if int(elapsed_time) % 30 == 0 and int(elapsed_time) > 0:
             print(f"⏰ Tiempo: {int(elapsed_time)}s | Pedidos disponibles: {len(jobs_manager.available_jobs)}")
 
+        # RENDER
         screen.fill((0, 0, 0))
         game_world.draw(screen)
         jobs_manager.draw_job_markers(screen, TILE_SIZE, courier_pos)
@@ -555,6 +591,53 @@ def main():
 
     pygame.quit()
     sys.exit()
+
+
+# ------------------ FUNCIÓN PRINCIPAL CON MENÚ ------------------
+def main():
+    # Inicialización de Pygame
+    pygame.init()
+
+    # Tamaño de pantalla inicial para el menú
+    INITIAL_SCREEN_WIDTH = 800
+    INITIAL_SCREEN_HEIGHT = 600
+    
+    # Crear ventana inicial para el menú
+    screen = pygame.display.set_mode((INITIAL_SCREEN_WIDTH, INITIAL_SCREEN_HEIGHT))
+    pygame.display.set_caption("Courier Quest")
+    
+    # Crear menú principal
+    menu = MainMenu(INITIAL_SCREEN_WIDTH, INITIAL_SCREEN_HEIGHT)
+    
+    # Bucle del menú
+    clock = pygame.time.Clock()
+    menu_running = True
+    game_action = None
+    
+    while menu_running:
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                menu_running = False
+                game_action = "quit"
+            
+            # Manejar eventos del menú
+            action = menu.handle_event(event)
+            if action:
+                game_action = action
+                menu_running = False
+        
+        # Dibujar menú
+        menu.draw(screen)
+        pygame.display.flip()
+        clock.tick(60)
+    
+    # Si el usuario quiere salir, terminar el programa
+    if game_action == "quit":
+        pygame.quit()
+        sys.exit()
+    
+    # Si el usuario eligió nueva partida o cargar, continuar con el juego
+    start_game(game_action)
 
 
 if __name__ == "__main__":
