@@ -22,7 +22,10 @@ from game.menu import MainMenu  # NUEVO: Importar el menú
 
 # ------------------ CARGA DE IMÁGENES ------------------
 def load_building_images():
-    """Carga y devuelve un diccionario de imágenes de edificios por su tamaño."""
+    """
+    Carga las imágenes de los edificios desde archivos y las escala según el tamaño.
+    Retorna un diccionario donde la clave es el tamaño (ancho, alto) y el valor es la imagen.
+    """
     building_images = {}
     image_names = {
         (3, 8): "edificio3x8.png",
@@ -36,6 +39,7 @@ def load_building_images():
     base_path = "images"
     for size, filename in image_names.items():
         try:
+            # Intenta cargar y escalar la imagen
             image = pygame.image.load(os.path.join(base_path, filename)).convert_alpha()
             building_images[size] = image
             print(f"Imagen de edificio {filename} ({size}) cargada con éxito.")
@@ -46,7 +50,10 @@ def load_building_images():
 
 
 def load_street_images():
-    """Carga la imagen única del patrón de calle (calle.png)."""
+    """
+    Carga la imagen de las calles y la escala al tamaño de tile.
+    Retorna un diccionario con el patrón base de las calles.
+    """
     base_path = "images"
     street_images = {}
 
@@ -64,44 +71,52 @@ def load_street_images():
 # ------------------ FUNCIÓN DEL JUEGO PRINCIPAL ------------------
 def start_game(action):
     """
-    Inicia el juego principal después del menú
+    Función principal que inicia y ejecuta el juego.
+    Maneja la inicialización, el bucle principal y la lógica del juego.
+    
+    Args:
+        action: Indica si es "new_game" o "load_game"
     """
-    # API + Cache
+    # Inicialización de API y caché
     api_cache = APICache()
     api_client = APIClient(api_cache)
 
-    # Carga de datos
+    # Carga de datos del juego
     map_data = api_client.get_map_data()
     jobs_data = api_client.get_jobs_data()
     weather_data = api_client.get_weather_data()
 
+    # Verificación crítica de datos del mapa
     if not map_data:
         print("Error CRÍTICO: No se pudo cargar los datos del mapa. Saliendo.")
         pygame.quit()
         sys.exit()
 
-    # Info de mapa
+    # Configuración inicial del juego
     map_info = map_data.get("data", {})
     game_start_time = datetime.fromisoformat(map_info.get("start_time", "2025-09-01T12:00:00Z"))
     jobs_manager = JobsManager(jobs_data, game_start_time)
 
-    # Tamaño pantalla dinámico basado en el mapa
+    # Cálculo dinámico del tamaño de pantalla basado en el mapa
     map_tile_width = map_info.get("width", 20)
     map_tile_height = map_info.get("height", 15)
     SCREEN_WIDTH = map_tile_width * TILE_SIZE
     SCREEN_HEIGHT = map_tile_height * TILE_SIZE
 
-    # Crear la ventana con el tamaño correcto
+    # Crear ventana del juego
     screen_size = (SCREEN_WIDTH + PANEL_WIDTH, SCREEN_HEIGHT)
     screen = pygame.display.set_mode(screen_size)
     pygame.display.set_caption("Courier Quest - En Juego")
 
+    # Configuración de tiempo y FPS
     clock = pygame.time.Clock()
     FPS = 60
 
+    # Carga de recursos gráficos
     building_images = load_building_images()
     street_images = load_street_images()
 
+    # Carga de imagen de césped
     try:
         cesped_image = pygame.image.load(os.path.join("images", "cesped.png")).convert_alpha()
         cesped_image = pygame.transform.scale(cesped_image, (TILE_SIZE, TILE_SIZE))
@@ -109,6 +124,7 @@ def start_game(action):
         print(f"Error al cargar la imagen del césped: {e}")
         cesped_image = None
 
+    # Carga de imagen del repartidor
     try:
         repartidor_image = pygame.image.load(os.path.join("images", "repartidor.png")).convert_alpha()
         repartidor_image = pygame.transform.scale(repartidor_image, (TILE_SIZE, TILE_SIZE))
@@ -116,6 +132,7 @@ def start_game(action):
         print(f"Error al cargar la imagen del repartidor: {e}")
         repartidor_image = None
 
+    # Creación de objetos del juego
     game_world = World(
         map_data=map_data,
         building_images=building_images,
@@ -127,15 +144,18 @@ def start_game(action):
     weather_manager = WeatherManager(weather_data)
     weather_visuals = WeatherVisuals((SCREEN_WIDTH, SCREEN_HEIGHT), TILE_SIZE)
 
+    # Configuración de HUD (Heads-Up Display)
     hud_area = pygame.Rect(SCREEN_WIDTH, 0, PANEL_WIDTH, SCREEN_HEIGHT)
     hud = HUD(hud_area, SCREEN_HEIGHT, TILE_SIZE)
 
     notifier = NotificationsOverlay(panel_width=PANEL_WIDTH, screen_height=SCREEN_HEIGHT)
-
     undo_stack = UndoStack(limit=20)
 
     def save_game_state():
-        """Guarda el estado actual del juego para poder deshacer"""
+        """
+        Guarda el estado actual del juego para poder deshacer acciones.
+        Incluye posición, estadísticas del repartidor y estado del clima.
+        """
         game_state = {
             "courier": {
                 "x": courier.x,
@@ -153,14 +173,27 @@ def start_game(action):
         undo_stack.push(game_state)
 
     def calculate_final_score(courier, elapsed_time, max_time, goal_income):
-        """Calcula el puntaje final con bonus y penalizaciones"""
+        """
+        Calcula el puntaje final considerando bonos y penalizaciones.
+        
+        Args:
+            courier: Objeto del repartidor con sus estadísticas
+            elapsed_time: Tiempo transcurrido en la partida
+            max_time: Tiempo máximo permitido
+            goal_income: Meta de ingresos a alcanzar
+            
+        Returns:
+            Tupla con score final y detalles de bonos/penalizaciones
+        """
         score_base = courier.income
         
+        # Bono por reputación alta
         reputation_bonus = 0
         if courier.reputation >= 90:
             reputation_bonus = score_base * 0.05
             score_base += reputation_bonus
         
+        # Bono por tiempo restante
         time_bonus = 0
         remaining_time = max_time - elapsed_time
         if remaining_time > (max_time * 0.2) and courier.income >= goal_income:
@@ -169,14 +202,16 @@ def start_game(action):
         
         cancellation_penalty = 0
         
+        # Cálculo del score final
         final_score = score_base + time_bonus - cancellation_penalty
         return max(0, final_score), time_bonus, reputation_bonus, cancellation_penalty
 
-    # Generar pedidos si no hay JSON utilizable
+    # Generación de pedidos si no hay datos disponibles
     if not jobs_data or not jobs_data.get("data"):
         print("📦 Forzando generación de nuevos pedidos...")
         jobs_manager.generate_random_jobs(game_world, num_jobs=10)
 
+        # Verificación de pedidos generados
         print("🔍 VERIFICANDO PEDIDOS GENERADOS:")
         print(f"   Total de pedidos: {len(jobs_manager.all_jobs)}")
         print(f"   Pedidos disponibles: {len(jobs_manager.available_jobs)}")
@@ -188,11 +223,12 @@ def start_game(action):
         print(f"   Total de pedidos: {len(jobs_manager.all_jobs)}")
         print(f"   Pedidos disponibles: {len(jobs_manager.available_jobs)}")
 
+    # Configuración de temporizadores y metas
     elapsed_time = 0.0
     max_time = map_info.get("max_time", 900)
     goal_income = map_info.get("goal", 0)
 
-    # NUEVO: Si la acción es "load_game", cargar la partida guardada inmediatamente
+    # Carga de partida si se seleccionó desde el menú
     if action == "load_game":
         try:
             loaded_data = load_slot("slot1.sav")
@@ -208,10 +244,10 @@ def start_game(action):
             print("No se encontró 'slot1.sav'.")
             notifier.error("No existe partida guardada")
 
-    # Bucle principal del juego
+    # BUCLE PRINCIPAL DEL JUEGO
     running = True
 
-    # Variables para movimiento continuo
+    # Configuración de movimiento continuo con teclado
     keys_pressed = {
         pygame.K_UP: False,
         pygame.K_DOWN: False,
@@ -222,16 +258,20 @@ def start_game(action):
     MOVE_COOLDOWN_TIME = 0.1
 
     while running:
+        # Actualización del tiempo del juego
         delta_time = clock.tick(FPS) / 1000.0
         elapsed_time += delta_time
         remaining_time = max_time - elapsed_time
 
+        # Verificación de tipo de tile actual para recuperación de stamina
         current_tile_type = game_world.tiles[courier.y][courier.x] if (0 <= courier.y < game_world.height and 0 <= courier.x < game_world.width) else "C"
         is_resting_spot = (current_tile_type == "P")
         
         courier.recover_stamina(delta_time, is_resting_spot)
 
-        # Condiciones fin de juego
+        # CONDICIONES DE FIN DE JUEGO
+        
+        # Tiempo agotado
         if remaining_time <= 0:
             print("Game Over: se acabó el tiempo.")
             final_score, time_bonus, reputation_bonus, penalties = calculate_final_score(courier, elapsed_time, max_time, goal_income)
@@ -247,6 +287,7 @@ def start_game(action):
             notifier.error("Tiempo agotado — partida guardada")
             running = False
 
+        # Reputación muy baja
         if courier.reputation < 20 and running:
             print("Game Over: reputación muy baja.")
             final_score, time_bonus, reputation_bonus, penalties = calculate_final_score(courier, elapsed_time, max_time, goal_income)
@@ -262,11 +303,13 @@ def start_game(action):
             notifier.error("Derrota: reputación < 20 — partida guardada")
             running = False
 
+        # Meta alcanzada (victoria)
         if courier.income >= goal_income and goal_income > 0 and running:
             print("¡Victoria! Meta alcanzada.")
             
             final_score, time_bonus, reputation_bonus, penalties = calculate_final_score(courier, elapsed_time, max_time, goal_income)
             
+            # Mostrar desglose del score
             print(f"💰 Score base: ${courier.income:.0f}")
             if reputation_bonus > 0:
                 print(f"⭐ Bonus reputación: +${reputation_bonus:.0f}")
@@ -276,6 +319,7 @@ def start_game(action):
                 print(f"⚠️  Penalizaciones: -${penalties:.0f}")
             print(f"🏆 Score final: ${final_score:.0f}")
             
+            # Guardar score
             save_score({
                 "score": round(final_score, 2),
                 "income": round(courier.income, 2),
@@ -288,18 +332,21 @@ def start_game(action):
             notifier.success("¡Meta alcanzada! Score guardado")
             running = False
 
-        # Eventos
+        # MANEJO DE EVENTOS
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
 
             elif event.type == pygame.KEYDOWN:
+                # Movimiento con teclas direccionales
                 if event.key in keys_pressed:
                     keys_pressed[event.key] = True
                     
+                # Deshacer acción (Ctrl+Z)
                 elif event.key == pygame.K_z and pygame.key.get_mods() & pygame.KMOD_CTRL:
                     saved_state = undo_stack.pop()
                     if saved_state:
+                        # Restaurar estado anterior del juego
                         courier.x = saved_state["courier"]["x"]
                         courier.y = saved_state["courier"]["y"]
                         courier.stamina = saved_state["courier"]["stamina"]
@@ -319,6 +366,7 @@ def start_game(action):
                         print("❌ No hay acciones para deshacer")
                         notifier.warn("No hay acciones para deshacer")
 
+                # Recoger pedido (ESPACIO)
                 elif event.key == pygame.K_SPACE:
                     try:
                         nearby_jobs = jobs_manager.get_available_jobs_nearby(courier_pos, max_distance=1)
@@ -337,12 +385,14 @@ def start_game(action):
                         print(f"Error en recogida: {e}")
                         notifier.error("Error al recoger")
 
+                # Entregar pedido (E)
                 elif event.key == pygame.K_e:
                     if not courier.inventory.is_empty():
                         _before = courier.inventory.current_job
                         delivered_job = jobs_manager.try_deliver_job(courier.inventory, courier_pos, elapsed_time)
 
                         if delivered_job:
+                            # Aplicar multiplicador de reputación al pago
                             mult = courier.get_reputation_multiplier()
                             base_payout = delivered_job.payout * mult
                             if mult > 1.0:
@@ -351,6 +401,7 @@ def start_game(action):
 
                             courier.income += base_payout
 
+                            # Actualizar reputación según puntualidad
                             reputation_change = delivered_job.calculate_reputation_change()
                             new_rep_below_20 = courier.update_reputation(reputation_change)
                             if reputation_change != 0:
@@ -362,6 +413,7 @@ def start_game(action):
                             print(f"🎉 Pedido {delivered_job.id} entregado! +${base_payout:.0f}")
                             notifier.success(f"Entregado {delivered_job.id} (+${base_payout:.0f})")
 
+                            # Verificar si la reputación cayó demasiado después de la entrega
                             if new_rep_below_20:
                                 print("Game Over: reputación muy baja.")
                                 final_score, time_bonus, reputation_bonus, penalties = calculate_final_score(courier, elapsed_time, max_time, goal_income)
@@ -377,6 +429,7 @@ def start_game(action):
                                 notifier.error("Derrota: reputación < 20 — partida guardada")
                                 running = False
                         else:
+                            # Manejar pedido expirado en inventario
                             if _before and _before.state == "expired":
                                 delta = ReputationSystem.for_delivery(
                                     res=type("R", (), {"status": "expired"})()
@@ -405,6 +458,7 @@ def start_game(action):
                         print("❌ No tienes pedidos para entregar")
                         notifier.warn("Inventario vacío")
 
+                # Cambiar entre pedidos en inventario (TAB)
                 elif event.key == pygame.K_TAB:
                     if pygame.key.get_mods() & pygame.KMOD_SHIFT:
                         courier.inventory.previous_job()
@@ -415,6 +469,7 @@ def start_game(action):
                         print("Siguiente pedido seleccionado")
                         notifier.info("Siguiente pedido")
 
+                # Cancelar pedido actual (C)
                 elif event.key == pygame.K_c:
                     current_job = courier.inventory.current_job
                     if current_job and current_job.cancel():
@@ -438,6 +493,7 @@ def start_game(action):
                             notifier.error("Derrota: reputación < 20 — partida guardada")
                             running = False
 
+                # Listar pedidos cercanos (A)
                 elif event.key == pygame.K_a:
                     try:
                         nearby = jobs_manager.get_available_jobs_nearby(courier_pos, max_distance=3)
@@ -460,6 +516,7 @@ def start_game(action):
                         print(f"Error al listar pedidos cercanos: {e}")
                         notifier.error("Error listando pedidos cercanos")
 
+                # ORDENAMIENTO DE INVENTARIO
                 elif event.key == pygame.K_F1:
                     if not courier.inventory.is_empty():
                         courier.inventory.apply_sort("priority")
@@ -481,12 +538,14 @@ def start_game(action):
                         print("🔄 Orden ORIGINAL restaurada")
                         notifier.info("Orden ORIGINAL")
 
+                # Guardar partida (Ctrl+S)
                 elif event.key == pygame.K_s and pygame.key.get_mods() & pygame.KMOD_CTRL:
                     data_to_save = {"courier": courier.get_save_state(), "elapsed_time": elapsed_time}
                     save_slot("slot1.sav", data_to_save)
                     print("💾 Partida guardada.")
                     notifier.success("Partida guardada")
 
+                # Cargar partida (Ctrl+L)
                 elif event.key == pygame.K_l and pygame.key.get_mods() & pygame.KMOD_CTRL:
                     try:
                         loaded_data = load_slot("slot1.sav")
@@ -502,13 +561,15 @@ def start_game(action):
                         print("No se encontró 'slot1.sav'.")
                         notifier.error("No existe 'slot1.sav'")
 
+            # Liberar teclas de movimiento
             elif event.type == pygame.KEYUP:
                 if event.key in keys_pressed:
                     keys_pressed[event.key] = False
 
-        # MOVIMIENTO CONTINUO
+        # MOVIMIENTO CONTINUO DEL REPARTIDOR
         dx, dy = 0, 0
 
+        # Determinar dirección del movimiento basado en teclas presionadas
         if keys_pressed[pygame.K_UP]:
             dy = -1
         elif keys_pressed[pygame.K_DOWN]:
@@ -519,13 +580,16 @@ def start_game(action):
         elif keys_pressed[pygame.K_RIGHT]:
             dx = 1
 
+        # Ejecutar movimiento si hay dirección y no está en cooldown
         if (dx != 0 or dy != 0) and move_cooldown <= 0:
-            save_game_state()
+            save_game_state()  # Guardar estado para poder deshacer
             
+            # Aplicar modificadores por clima y superficie
             stamina_cost_modifier = weather_manager.get_stamina_cost_multiplier()
             climate_mult = weather_manager.get_speed_multiplier()
             new_x, new_y = courier.x + dx, courier.y + dy
 
+            # Verificar si la nueva posición es transitable
             if game_world.is_walkable(new_x, new_y):
                 surface_weight = game_world.surface_weight_at(new_x, new_y)
                 courier.move(
@@ -537,27 +601,36 @@ def start_game(action):
                 )
                 move_cooldown = MOVE_COOLDOWN_TIME
 
+        # Actualizar cooldown del movimiento
         if move_cooldown > 0:
             move_cooldown -= delta_time
 
+        # ACTUALIZACIÓN DEL ESTADO DEL JUEGO
         courier_pos = (courier.x, courier.y)
         jobs_manager.update(elapsed_time, courier_pos)
         weather_manager.update(delta_time)
 
+        # Log periódico del estado del juego
         if int(elapsed_time) % 30 == 0 and int(elapsed_time) > 0:
             print(f"⏰ Tiempo: {int(elapsed_time)}s | Pedidos disponibles: {len(jobs_manager.available_jobs)}")
 
-        # RENDER
+        # RENDERIZADO DEL JUEGO
+        
+        # Limpiar pantalla
         screen.fill((0, 0, 0))
+        
+        # Dibujar mundo, marcadores de pedidos y repartidor
         game_world.draw(screen)
         jobs_manager.draw_job_markers(screen, TILE_SIZE, courier_pos)
         courier.draw(screen, TILE_SIZE)
 
+        # Actualizar y dibujar efectos climáticos
         current_condition = weather_manager.get_current_condition()
         current_intensity = weather_manager.get_current_intensity()
         weather_visuals.update(delta_time, current_condition, current_intensity)
         weather_visuals.draw(screen)
 
+        # Verificar proximidad a puntos de recogida/entrega
         near_pickup = False
         near_dropoff = False
         if not courier.inventory.is_empty():
@@ -568,9 +641,11 @@ def start_game(action):
                 if abs(courier.x - job.dropoff_pos[0]) + abs(courier.y - job.dropoff_pos[1]) == 1:
                     near_dropoff = True
 
+        # Obtener peso de la superficie actual para el HUD
         current_surface_weight = game_world.surface_weight_at(courier.x, courier.y)
-
         current_speed_mult = weather_manager.get_speed_multiplier()
+
+        # Dibujar HUD con información del juego
         hud.draw(
             screen,
             courier,
@@ -584,17 +659,23 @@ def start_game(action):
             current_surface_weight=current_surface_weight
         )
 
+        # Actualizar y dibujar notificaciones
         notifier.update(delta_time)
         notifier.draw(screen, hud_area)
 
+        # Actualizar pantalla
         pygame.display.flip()
 
+    # Limpieza y salida
     pygame.quit()
     sys.exit()
 
 
 # ------------------ FUNCIÓN PRINCIPAL CON MENÚ ------------------
 def main():
+    """
+    Función principal que inicializa el juego y maneja el menú principal.
+    """
     # Inicialización de Pygame
     pygame.init()
 
@@ -615,12 +696,13 @@ def main():
     game_action = None
     
     while menu_running:
+        # Manejo de eventos del menú
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 menu_running = False
                 game_action = "quit"
             
-            # Manejar eventos del menú
+            # Manejar eventos del menú (clic, teclas)
             action = menu.handle_event(event)
             if action:
                 game_action = action
@@ -631,12 +713,12 @@ def main():
         pygame.display.flip()
         clock.tick(60)
     
-    # Si el usuario quiere salir, terminar el programa
+    # Salir del juego si se seleccionó "quit"
     if game_action == "quit":
         pygame.quit()
         sys.exit()
     
-    # Si el usuario eligió nueva partida o cargar, continuar con el juego
+    # Iniciar el juego según la acción seleccionada
     start_game(game_action)
 
 
