@@ -64,7 +64,6 @@ Es decir que si se duplica la cantidad de nodos o conexiones, el algortimo va a 
 - Gardar puntajes: Se hizo con un JSON, su complejidad algoritmica es de O(n log n), esto es lo que ordena puntajes descendentes antes de guardar. 
 
 ## Prompts utilizados 
-I. Fundamentos y Conectividad (API y Estructura)
  * Estructura Base (Pygame):
    > "Dame el código de inicialización de Pygame para el proyecto, configurando el tamaño de la ventana y el bucle principal. Debo poder importar World y Courier."
    > 
@@ -144,7 +143,7 @@ V. Recursos Gráficos (Efectos de Clima)
 * Ayuda con depuración del main.py:
    > Incorporación del bucle principal (while running) con control de tiempo, condiciones de victoria y derrota.
     >
-*Asistencia en la organización del HUD:
+* Asistencia en la organización del HUD:
     > Para mostrar: tiempo restante, ingresos, reputación y estado del clima
   >
 * Explicación lógica: 
@@ -156,3 +155,63 @@ V. Recursos Gráficos (Efectos de Clima)
  * Redacción de README con especificaciones dadas: 
    > Se pidió a la IA que nos ayudara a redactar un README con la información que le dimos acerca del proyecto una vez que lo completamos, y nos ayudó con la organización del mismo.
    >
+
+“Hola, me puedes explicar el código GameView y cómo dibuja el mapa con arcade.”
+
+“Quiero que los edificios se vean unidos, sin grilla, y que las calles y parques se adapten.”
+
+“Dame la clase World actualizada sin perder funcionalidades y que funcione con mi main.py.”
+
+“La app se cierra abruptamente, aparece ese error.”
+
+“Por qué los edificios de abajo quedan fuera del margen.”
+
+“Dame la clase con el debug que muestre coordenadas e inventario.”
+
+“Cómo pruebo que sirva lo del pedido.”
+
+“Qué significa todo esto que aparece arriba del HUD.”
+
+“Qué está funcional hasta el momento.”
+
+“¿La lluvia aumenta la velocidad y el consumo de resistencia?”
+
+“Me puedes dar una lista de todos los prompts que utilicé por favor.”
+
+“¿Qué falta de implementar según el enunciado?”
+
+“Pedidos (necesito implementar todo lo necesario en pedidos para que recoja el pedido, que me diga cuando lo recoja, que las instrucciones queden claras en el slider).”
+
+“Necesito implementar score, reputación y dinero, y que me expliques claramente por qué hacer cada cosa.”
+
+“Dame los cambios en formato README incluyendo estructuras de datos y complejidad algorítmica.”
+
+“¿Cómo puedo probar lo que acabo de implementar del sistema de puntajes (score)?”
+
+“¿Dónde está eso?”
+
+“¿Y ese cambio qué es lo que hace?”
+
+“Por qué se desacomodó el pasto, ¿dónde se maneja eso?”
+
+“Podemos seguir con la lista de implementaciones por cumplir que te pasé.”
+
+“Sí, pero dime qué clases te paso para que me las devuelvas actualizadas.”
+
+“Dame el main actualizado y listo para probar todo.”
+
+“Listo, ¿qué más sigue?”
+
+“Lo que me recomiendes y que no rompa ninguna de las funcionalidades que ya tiene el proyecto.”
+
+“Confirma que todo está bien, y cuando lo hagas te paso el hud.py actualizado para que lo revises.”
+
+“Que debo cambiar en el hud.py, no borres ni desordenas nada.”
+
+“Ahora que sigue.”
+
+“El proyecto ya cumple todo lo que dice en la lista de implementaciones que te pedí, ¿verdad?”
+
+“Antes de hacer eso, me puedes dar un commit para todo eso que implementé hasta ahora.”
+
+“Me puedes dar todos los prompts que te hice en una lista.”
