@@ -73,7 +73,6 @@ Es decir que si se duplica la cantidad de nodos o conexiones, el algortimo va a 
  * Dimensiones Dinámicas:
    > "Ajusta la inicialización de Pygame para que las dimensiones de la pantalla (SCREEN_WIDTH, SCREEN_HEIGHT) se definan dinámicamente basándose en el width y height reales del mapa que retorna el API, multiplicados por TILE_SIZE."
    > 
-II. Manejo del Mapa y Lógica de Terreno
  * Implementación de la clase World y Lógica de Terreno:
    > "Implementar la clase World para manejar el mapa del juego, incluyendo la lógica de carga de imágenes para edificios y calles, y definir métodos para verificar la transitabilidad (is_walkable) y el peso de superficie (surface_weight_at) de cada tile."
    > 
@@ -89,7 +88,6 @@ II. Manejo del Mapa y Lógica de Terreno
  * Corrección sobre load_grass_image():
    > "Corregir una sugerencia previa, señalando que la función load_grass_image() no debe estar incluida en main.py si el código anterior funcionaba sin ella, y ajustando la inicialización de los componentes del juego para que el World reciba None como imagen de césped."
    > 
-III. Lógica de Juego (Courier, Clima y Estado)
  * Desarrollo del Bucle Principal del Juego (incluyendo movimiento):
    > "Crear la estructura principal del juego en main.py, asegurando que el Courier (repartidor) pueda moverse por el mapa usando las teclas, respetando la lógica de transitabilidad de World y aplicando los modificadores de resistencia del clima."
    > 
@@ -111,7 +109,6 @@ III. Lógica de Juego (Courier, Clima y Estado)
  * Condición de Fin de Juego:
    > "Añade la lógica de control en el bucle principal que detecte y maneje las condiciones de victoria y derrota, mostrando una pantalla final si el Courier alcanza el objetivo de dinero (goal del mapa) o si su Estamina llega a cero."
    > 
-IV. Interfaz de Usuario (UI/UX) y Visuales
  * Adición del Menú Principal:
    > "Agregar un Menú Principal al inicio del juego con tres opciones: 'Nueva Partida', 'Cargar Partida' y 'Salir', y codificar la lógica para cambiar el estado del juego entre el menú y el juego en ejecución."
    > 
@@ -124,7 +121,6 @@ IV. Interfaz de Usuario (UI/UX) y Visuales
  * Visuales del Clima:
    > "Crea la clase WeatherVisuals para que dibuje efectos gráficos (partículas de lluvia, capa de color para niebla, etc.) en la pantalla, sincronizándose con el estado actual y la intensidad proporcionada por el WeatherManager."
    > 
-V. Recursos Gráficos (Efectos de Clima)
  * Partícula de Lluvia (Normal):
    > "Una pequeña imagen de una gota de lluvia inclinada, de color azul o gris claro. Debe tener un fondo transparente y ser lo suficientemente pequeña (por ejemplo, 5x10 píxeles) para que, al repetirse, simule la lluvia. En PNG porfavor, en efecto pixelArt"
    > 
