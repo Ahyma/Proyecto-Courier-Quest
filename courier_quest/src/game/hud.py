@@ -385,3 +385,44 @@ class HUD:
 
         top_limit = max(y + 4, self.rect.top + self.PAD + 4)
         self._footer_with_autofit(screen, x, bottom, top_limit, contextual)
+    
+    def draw_ai_stats(self, screen: pygame.Surface, ai_courier):
+        """
+        Dibuja una versión simplificada de las estadísticas del AI Courier.
+        Se posiciona en la esquina superior derecha de la pantalla.
+        """
+        # --- Posicionamiento ---
+        # Usamos el ancho de la pantalla (screen.get_width()) y restamos un offset para la derecha
+        x_offset = screen.get_width() - self.PAD - 180  # 180 es un ancho estimado para las stats
+        y_offset = self.PAD
+        line_height = self.fs_small.get_linesize() + 2
+        
+        # --- Título ---
+        y_offset += self._blit(screen, "CPU Courier Stats:", self.fs, self.hl, x_offset, y_offset)
+        y_offset += self.VR_GAP
+        
+        # --- Dificultad ---
+        difficulty_name = ai_courier.difficulty.name if ai_courier.difficulty else "N/A"
+        y_offset += self._blit(screen, f"Dificultad: {difficulty_name}", self.fs_small, self.tx, x_offset, y_offset)
+        
+        # --- Ingresos ---
+        y_offset += self._blit(screen, f"Ingresos: ${ai_courier.income:.2f}", self.fs_small, self.tx, x_offset, y_offset)
+        
+        # --- Paquetes ---
+        y_offset += self._blit(screen, f"Entregados: {ai_courier.packages_delivered}", self.fs_small, self.tx, x_offset, y_offset)
+
+        # --- Resistencia (Stamina) ---
+        max_sta = max(1, int(getattr(ai_courier, "max_stamina", 100)))
+        sta_pct = max(0.0, min(1.0, ai_courier.stamina / max_sta))
+        
+        # Dibuja la barra de stamina
+        bar_w = 150
+        bar_h = 10
+        bar_rect = pygame.Rect(x_offset, y_offset + self.VR_GAP, bar_w, bar_h)
+        pygame.draw.rect(screen, (50, 50, 50), bar_rect)  # Fondo gris
+        fill_rect = pygame.Rect(x_offset, y_offset + self.VR_GAP, int(bar_w * sta_pct), bar_h)
+        bar_color = self.warn if sta_pct < 0.3 else self.ok
+        pygame.draw.rect(screen, bar_color, fill_rect) 
+        
+        y_offset = bar_rect.bottom + 4
+        self._blit(screen, f"Resistencia: {int(ai_courier.stamina)}", self.fs_small, self.tx, x_offset + bar_w // 2, y_offset, align="center")
