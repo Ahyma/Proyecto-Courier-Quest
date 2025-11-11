@@ -1,5 +1,5 @@
 import pygame
-from .inventory import Inventory
+from game.inventory import Inventory
 
 class Courier:
     """
@@ -65,56 +65,62 @@ class Courier:
         else:
             return "normal"
 
-    def move(self, dx, dy, stamina_cost_modifier=1.0, surface_weight=1.0, climate_mult=1.0):
+    def move(self, dx: int, dy: int, world, jobs_manager, 
+              stamina_cost_modifier: float = 1.0, 
+              surface_weight: float = None, 
+              climate_mult: float = 1.0) -> bool:
         """
-        Mueve al repartidor aplicando todos los modificadores.
+        Mueve al repartidor por el mapa y calcula los costos de stamina.
         
         Args:
-            dx, dy: Dirección del movimiento
-            stamina_cost_modifier: Multiplicador de costo por clima
-            surface_weight: Multiplicador por tipo de superficie
-            climate_mult: Multiplicador por condición climática
+            dx, dy: Dirección del movimiento (-1, 0, 1)
+            world: Instancia de World para verificar transitabilidad y pesos
+            jobs_manager: Instancia de JobsManager para manejar interacciones
+            stamina_cost_modifier: Multiplicador de costo por el clima (default 1.0)
+            surface_weight: Peso de la superficie (se recalcula si es None)
+            climate_mult: Multiplicador de velocidad/tiempo (no usado en este método)
+
+        Returns:
+            True si el movimiento fue exitoso, False si no se movió (ej. por obstáculo o stamina)
         """
-        # NUEVO: Verificar si está exhausto (no puede moverse)
-        if self.is_exhausted:
-            print("⚠️  Demasiado exhausto para moverse. Descansa para recuperarte.")
-            return
-        
-        # Cálculo de modificadores de velocidad
-        Mpeso = max(0.8, 1 - 0.03 * self.current_weight)  # Penalización por peso
-        Mrep = 1.03 if self.reputation >= 90 else 1.0  # Bono por reputación alta
+        new_x, new_y = self.x + dx, self.y + dy
 
-        # Modificador por estado de stamina
-        if self.stamina <= 0:
-            Mresistencia = 0.0  # Sin stamina = no movimiento
-            # NUEVO: Marcar como exhausto si se queda sin stamina
+        # 1. Verificación básica: No salirse del mapa
+        if not (0 <= new_x < world.width and 0 <= new_y < world.height):
+            return False
+
+        # 2. Verificación de transitabilidad (si es caminable)
+        if not world.is_walkable(new_x, new_y):
+            return False
+
+        # 3. Calcular el costo de stamina
+        if surface_weight is None:
+            surface_weight = world.surface_weight_at(new_x, new_y)
+
+        # Usar el peso actual para el cálculo de penalización por peso del paquete
+        weight_penalty = self.current_weight / self.max_weight 
+        
+        # Penalización total por peso/terreno/clima
+        # El peso base del movimiento es 1 unidad de stamina
+        total_stamina_cost = 1.0 * surface_weight * stamina_cost_modifier * (1.0 + weight_penalty * 0.5)
+
+        # 4. Verificar stamina
+        if self.stamina < total_stamina_cost:
+            # Si el movimiento falla por stamina, entrar en estado Exhausto
+            # CORRECCIÓN: Asignar True al atributo is_exhausted
             self.is_exhausted = True
-            print("💤 ¡Exhausto! Descansa para recuperarte hasta 30% de stamina.")
-        elif self.stamina <= 30:
-            Mresistencia = 0.8  # Stamina baja = 80% de velocidad
-        else:
-            Mresistencia = 1.0  # Stamina normal = velocidad completa
+            return False
+            
+        # 5. Aplicar Movimiento y Costo
+        self.stamina -= total_stamina_cost
+        self.x, self.y = new_x, new_y
+        # CORRECCIÓN: Si el movimiento fue exitoso, salir de Exhausto si estaba en ese estado
+        self.is_exhausted = False 
 
-        # Cálculo de velocidad final con todos los modificadores
-        final_speed = (self.base_speed * climate_mult * Mpeso * Mrep * Mresistencia * surface_weight)
-        
-        # Si no hay stamina, no moverse
-        if Mresistencia == 0:
-            return
+        # 6. Interacción: Verificar si llegamos a un punto de recogida o entrega
+        jobs_manager.check_and_interact(self)
 
-        # Aplicar movimiento
-        self.x += dx
-        self.y += dy
-
-        # Calcular costo de stamina
-        base_stamina_cost = 0.5
-        extra_weight_penalty = 0.2 * max(0, self.current_weight - 3)  # Penalización por exceso de peso
-        total_cost = (base_stamina_cost + extra_weight_penalty) * stamina_cost_modifier
-        self.stamina = max(0, self.stamina - total_cost)
-        
-        # NUEVO: Actualizar estado exhausto si se queda sin stamina
-        if self.stamina <= 0:
-            self.is_exhausted = True
+        return True
 
     def recover_stamina(self, delta_time, is_resting_spot=False):
         """
@@ -286,9 +292,64 @@ class Courier:
             "delivered": self.packages_delivered,
             "state": self.stamina_state
         }
+    
+    def update(self, delta_time: float, game_world, weather_manager):
+        """
+        Actualiza el estado del courier en cada tick del juego.
+        
+        Args:
+            delta_time: Tiempo transcurrido desde el último frame (segundos).
+            game_world: Instancia del mundo para verificar la superficie actual.
+            weather_manager: Instancia para obtener el clima actual (no usado directamente en esta versión).
+        """
+        # 1. Recuperación de stamina
+        current_surface_is_resting = game_world.is_resting_spot(self.x, self.y) if game_world else False
+        self.recover_stamina(delta_time, is_resting_spot=current_surface_is_resting)
+        
+        # Nota: Aquí se podrían añadir otras lógicas basadas en el tiempo.
 
     def __str__(self):
         """Representación en string para debugging."""
         return (f"Courier(pos=({self.x},{self.y}), stamina={self.stamina}, "
                 f"income=${self.income}, rep={self.reputation}, "
                 f"jobs={self.get_job_count()}/{self.max_weight}kg)")
+    
+    def is_carrying_max_weight(self) -> bool:
+        """
+        Verifica si el repartidor está llevando el peso máximo permitido.
+        Utilizado por la IA para decidir si debe seguir recogiendo.
+        """
+        # Comparamos el peso actual con el peso máximo, permitiendo un pequeño margen
+        # para evitar problemas de coma flotante si fuera necesario, pero la comparación directa es suficiente.
+        return self.current_weight >= self.max_weight
+    
+    # En src/game/courier.py, dentro de la clase Courier
+    def get_time_per_tile(self, game_world, weather_manager):
+        """
+        Calcula el tiempo (segundos) que el courier tarda en moverse una celda.
+        """
+        v0 = self.base_speed  # Base: 3.0 celdas/seg
+        
+        # 1. Multiplicadores
+        Mclima = weather_manager.get_speed_multiplier() if weather_manager else 1.0
+        Mpeso = max(0.8, 1 - 0.03 * self.current_weight)
+        Mrep = self.get_reputation_multiplier()
+        
+        Mresistencia = 1.0 
+        if self.stamina_state == "cansado": 
+            Mresistencia = 0.8
+        if self.stamina_state == "exhausto": 
+            Mresistencia = 0.0
+        
+        surface_weight = game_world.surface_weight_at(self.x, self.y)
+
+        # 2. Velocidad final: v = v0 * Mclima * Mpeso * Mrep * Mresistencia * surface_weight
+        v_final = v0 * Mclima * Mpeso * Mrep * Mresistencia * surface_weight
+        
+        # 3. Calcular tiempo por celda: t = 1 / v
+        if v_final <= 0.0:
+            return float('inf')
+            
+        time_per_tile = 1.0 / v_final
+        
+        return time_per_tile

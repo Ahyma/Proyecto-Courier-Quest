@@ -1,184 +1,186 @@
 import pygame
-import os
-from game.save_game import load_slot
+from game.palette import WHITE, BLACK, BLUE, LIGHT_GRAY, DARK_GRAY, RED
+# Importamos AIDifficulty, asumiendo que ya está en game/ai_courier.py
+from game.ai_courier import AIDifficulty 
 
+# ----------------------------------------------------------------------
+# Elemento UI Básico
+# ----------------------------------------------------------------------
+class MenuItem:
+    """
+    Clase base para elementos interactivos del menú (botones).
+    """
+    def __init__(self, rect, text, action=None, color=DARK_GRAY, text_color=WHITE):
+        self.rect = rect
+        self.text = text
+        self.action = action
+        self.color = color
+        self.text_color = text_color
+        self.is_hovered = False
+
+    def draw(self, screen, font):
+        """Dibuja el elemento."""
+        # Cambia el color si el mouse está sobre el elemento
+        color = BLUE if self.is_hovered else self.color
+        pygame.draw.rect(screen, color, self.rect, border_radius=5)
+        
+        # Dibuja el texto centrado
+        text_surface = font.render(self.text, True, self.text_color)
+        screen.blit(text_surface, text_surface.get_rect(center=self.rect.center))
+
+    def handle_event(self, event):
+        """Maneja los eventos (mouse-click)."""
+        if event.type == pygame.MOUSEMOTION:
+            self.is_hovered = self.rect.collidepoint(event.pos)
+        
+        if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+            if self.is_hovered:
+                return self.action
+        return None
+
+# ----------------------------------------------------------------------
+# Selector de Dificultad
+# ----------------------------------------------------------------------
+class DifficultySelector(MenuItem):
+    """
+    Un selector de dificultad que cicla entre los niveles de AIDifficulty al hacer clic.
+    """
+    def __init__(self, rect, initial_difficulty, action_prefix):
+        # La acción se define en _update_text
+        super().__init__(rect, "", action=action_prefix, color=DARK_GRAY)
+        self.difficulties = [d for d in AIDifficulty] # [EASY, MEDIUM, HARD]
+        self.current_difficulty = initial_difficulty
+        self._update_text()
+        
+    def _update_text(self):
+        """Actualiza el texto para mostrar la dificultad actual (e.g., 'Dificultad IA: Medio')."""
+        self.text = f"Dificultad IA: {self.current_difficulty.value}"
+        
+    def handle_event(self, event):
+        """Cambia a la siguiente dificultad al hacer clic."""
+        if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+            if self.is_hovered:
+                # Encuentra el índice actual y pasa al siguiente
+                try:
+                    current_index = self.difficulties.index(self.current_difficulty)
+                except ValueError:
+                    current_index = 0 
+                    
+                new_index = (current_index + 1) % len(self.difficulties)
+                self.current_difficulty = self.difficulties[new_index]
+                self._update_text()
+                
+                # Retorna un diccionario para que MainMenu guarde el nuevo valor
+                return {
+                    "action": self.action, 
+                    "value": self.current_difficulty
+                }
+        
+        if event.type == pygame.MOUSEMOTION:
+            self.is_hovered = self.rect.collidepoint(event.pos)
+        
+        return None
+        
+    def get_current_difficulty(self):
+        """Retorna el objeto AIDifficulty actual."""
+        return self.current_difficulty
+
+# ----------------------------------------------------------------------
+# Menú Principal
+# ----------------------------------------------------------------------
 class MainMenu:
     """
-    Menú principal del juego.
-    
-    Permite al usuario:
-    - Iniciar nueva partida
-    - Cargar partida existente
-    - Salir del juego
+    Menú principal del juego, gestionando el estado y la navegación.
+    Incluye el selector de dificultad para la IA antes de iniciar la partida.
     """
     
-    def __init__(self, screen_width, screen_height):
-        """
-        Inicializa el menú principal.
+    def __init__(self, width, height):
+        self.width = width
+        self.height = height
+        self.font_large = pygame.font.Font(None, 74)
+        self.font_medium = pygame.font.Font(None, 36)
         
-        Args:
-            screen_width: Ancho de la pantalla
-            screen_height: Alto de la pantalla
-        """
-        self.screen_width = screen_width
-        self.screen_height = screen_height
-        self.buttons = []  # Lista de botones del menú
-        self.selected_button = 0  # Índice del botón seleccionado
-        self.font_large = None  # Fuente para título
-        self.font_medium = None  # Fuente para botones
-        self.font_small = None  # Fuente para texto pequeño
+        # Configuración por defecto de la IA
+        self.ai_difficulty = AIDifficulty.MEDIUM 
         
-        # Paleta de colores
-        self.bg_color = (20, 30, 40)  # Azul oscuro
-        self.title_color = (255, 215, 0)  # Dorado
-        self.button_color = (70, 130, 180)  # Azul
-        self.button_hover_color = (100, 160, 210)  # Azul claro
-        self.button_text_color = (255, 255, 255)  # Blanco
-        self.button_disabled_color = (100, 100, 100)  # Gris
+        # Elementos del menú
+        self.main_elements = self._create_main_elements()
+
+    def _create_main_elements(self):
+        """Crea los elementos del menú principal."""
+        center_x = self.width // 2
+        elements = []
         
-        self.load_fonts()
-        self.create_buttons()
+        # 1. Selector de Dificultad (Posición superior)
+        rect_difficulty = pygame.Rect(center_x - 150, self.height // 3 - 50, 300, 50)
+        self.difficulty_selector = DifficultySelector(
+            rect_difficulty, 
+            self.ai_difficulty, 
+            action_prefix="set_difficulty"
+        )
+        elements.append(self.difficulty_selector)
         
-    def load_fonts(self):
-        """Carga las fuentes para el menú con manejo de errores."""
-        try:
-            font_path = os.path.join("fonts", "RussoOne-Regular.ttf")
-            self.font_large = pygame.font.Font(font_path, 48)  # Título
-            self.font_medium = pygame.font.Font(font_path, 32)  # Botones
-            self.font_small = pygame.font.Font(font_path, 24)  # Texto pequeño
-        except:
-            # Fallback a fuentes por defecto si hay error
-            self.font_large = pygame.font.Font(None, 48)
-            self.font_medium = pygame.font.Font(None, 32)
-            self.font_small = pygame.font.Font(None, 24)
-    
-    def create_buttons(self):
-        """Crea y posiciona los botones del menú."""
-        button_width = 300
-        button_height = 60
-        button_margin = 20
-        total_height = (button_height * 3) + (button_margin * 2)
-        start_y = (self.screen_height - total_height) // 2 + 50  # Centrado vertical
+        # 2. Botón de Nueva Partida (Inicia el juego con la dificultad seleccionada)
+        rect_new = pygame.Rect(center_x - 150, self.height // 3 + 20, 300, 50)
+        elements.append(MenuItem(rect_new, "Nueva Partida", action="start_game"))
         
-        # Verificar si existe partida guardada para habilitar/deshabilitar botón
-        has_saved_game = self.check_saved_game()
+        # 3. Cargar Partida
+        rect_load = pygame.Rect(center_x - 150, self.height // 3 + 90, 300, 50)
+        elements.append(MenuItem(rect_load, "Cargar Partida", action="load_game"))
         
-        self.buttons = [
-            {
-                "text": "Nueva Partida",
-                "rect": pygame.Rect((self.screen_width - button_width) // 2, start_y, button_width, button_height),
-                "action": "new_game",
-                "enabled": True
-            },
-            {
-                "text": "Cargar Partida",
-                "rect": pygame.Rect((self.screen_width - button_width) // 2, start_y + button_height + button_margin, button_width, button_height),
-                "action": "load_game", 
-                "enabled": has_saved_game  # Solo habilitado si hay partida guardada
-            },
-            {
-                "text": "Cerrar Juego",
-                "rect": pygame.Rect((self.screen_width - button_width) // 2, start_y + (button_height + button_margin) * 2, button_width, button_height),
-                "action": "quit",
-                "enabled": True
-            }
-        ]
-    
-    def check_saved_game(self):
-        """
-        Verifica si existe una partida guardada.
+        # 4. Puntuaciones
+        rect_score = pygame.Rect(center_x - 150, self.height // 3 + 160, 300, 50)
+        elements.append(MenuItem(rect_score, "Puntuaciones", action="scores"))
         
-        Returns:
-            True si existe partida guardada, False si no
-        """
-        try:
-            saved_data = load_slot("slot1.sav")
-            return saved_data is not None
-        except:
-            return False  # No hay partida guardada o error
-    
+        # 5. Salir
+        rect_quit = pygame.Rect(center_x - 150, self.height // 3 + 230, 300, 50)
+        elements.append(MenuItem(rect_quit, "Salir", action="quit", color=RED))
+        
+        return elements
+
+    def draw(self, screen):
+        """Dibuja el menú principal."""
+        screen.fill(LIGHT_GRAY)
+        
+        # Título principal
+        title_surface = self.font_large.render("Courier Quest II", True, BLACK)
+        screen.blit(title_surface, title_surface.get_rect(center=(self.width // 2, 100)))
+        
+        # Dibuja todos los elementos (incluyendo el selector de dificultad)
+        for item in self.main_elements:
+            item.draw(screen, self.font_medium)
+            
     def handle_event(self, event):
         """
-        Maneja los eventos del menú (teclado y mouse).
+        Maneja los eventos del menú.
         
-        Args:
-            event: Evento de pygame a procesar
-            
-        Returns:
-            Acción a realizar o None si no hay acción
+        Retorna:
+            Diccionario con "action" y opcionalmente "difficulty" si el juego
+            debe iniciar, o None si es una interacción interna.
         """
-        if event.type == pygame.KEYDOWN:
-            # Navegación con flechas
-            if event.key == pygame.K_UP:
-                self.selected_button = (self.selected_button - 1) % len(self.buttons)
-                # Saltar botones deshabilitados
-                while not self.buttons[self.selected_button]["enabled"]:
-                    self.selected_button = (self.selected_button - 1) % len(self.buttons)
-            elif event.key == pygame.K_DOWN:
-                self.selected_button = (self.selected_button + 1) % len(self.buttons)
-                # Saltar botones deshabilitados
-                while not self.buttons[self.selected_button]["enabled"]:
-                    self.selected_button = (self.selected_button + 1) % len(self.buttons)
-            elif event.key == pygame.K_RETURN:
-                return self.buttons[self.selected_button]["action"]  # Ejecutar acción
-        
-        # Navegación con mouse
-        elif event.type == pygame.MOUSEMOTION:
-            for i, button in enumerate(self.buttons):
-                if button["rect"].collidepoint(event.pos) and button["enabled"]:
-                    self.selected_button = i  # Cambiar selección
-                    break
-        
-        # Clic en botón
-        elif event.type == pygame.MOUSEBUTTONDOWN:
-            if event.button == 1:  # Click izquierdo
-                for button in self.buttons:
-                    if button["rect"].collidepoint(event.pos) and button["enabled"]:
-                        return button["action"]  # Ejecutar acción
-        
-        return None  # No hay acción
-    
-    def draw(self, screen):
-        """Dibuja todo el menú en la pantalla."""
-        # Fondo
-        screen.fill(self.bg_color)
-        
-        # Título del juego
-        title_surf = self.font_large.render("COURIER QUEST", True, self.title_color)
-        title_rect = title_surf.get_rect(center=(self.screen_width // 2, self.screen_height // 4))
-        screen.blit(title_surf, title_rect)
-        
-        # Subtítulo
-        subtitle_surf = self.font_small.render("Sistema de Entregas Urbanas", True, (200, 200, 200))
-        subtitle_rect = subtitle_surf.get_rect(center=(self.screen_width // 2, self.screen_height // 4 + 50))
-        screen.blit(subtitle_surf, subtitle_rect)
-        
-        # Dibujar botones
-        for i, button in enumerate(self.buttons):
-            # Color según estado del botón
-            color = self.button_hover_color if i == self.selected_button else self.button_color
-            if not button["enabled"]:
-                color = self.button_disabled_color  # Gris para deshabilitado
+        for item in self.main_elements:
+            action_result = item.handle_event(event)
             
-            # Dibujar botón con bordes redondeados
-            pygame.draw.rect(screen, color, button["rect"], border_radius=10)
-            pygame.draw.rect(screen, (255, 255, 255), button["rect"], 2, border_radius=10)
-            
-            # Texto del botón
-            text_color = self.button_text_color if button["enabled"] else (150, 150, 150)
-            text_surf = self.font_medium.render(button["text"], True, text_color)
-            text_rect = text_surf.get_rect(center=button["rect"].center)
-            screen.blit(text_surf, text_rect)
-            
-            # Indicador de selección (solo para navegación por teclado)
-            if i == self.selected_button:
-                indicator = ">"
-                indicator_surf = self.font_medium.render(indicator, True, (255, 255, 0))
-                indicator_rect = indicator_surf.get_rect(midright=(button["rect"].left - 10, button["rect"].centery))
-                screen.blit(indicator_surf, indicator_rect)
+            if action_result:
+                
+                # Caso 1: El selector de dificultad cambia (retorna un diccionario)
+                if isinstance(action_result, dict):
+                    action = action_result.get("action")
+                    if action == "set_difficulty":
+                        self.ai_difficulty = action_result.get("value")
+                        return None # Interacción interna (se mantiene en el menú)
+                
+                # Caso 2: Un botón de acción es presionado (retorna una cadena)
+                elif isinstance(action_result, str):
+                    
+                    if action_result == "start_game":
+                        # Iniciar juego, retornando la dificultad seleccionada
+                        return {
+                            "action": "start_game",
+                            "difficulty": self.ai_difficulty
+                        }
+                    
+                    # Otras acciones (Cargar, Puntuaciones, Salir)
+                    return {"action": action_result} 
         
-        # Información de controles en la parte inferior
-        controls_text = "Usa las flechas y ENTER o haz clic para seleccionar"
-        controls_surf = self.font_small.render(controls_text, True, (150, 150, 150))
-        controls_rect = controls_surf.get_rect(center=(self.screen_width // 2, self.screen_height - 50))
-        screen.blit(controls_surf, controls_rect)
+        return None

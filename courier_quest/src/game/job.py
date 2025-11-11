@@ -75,18 +75,9 @@ class Job:
             return False  # Estados finales
         return current_game_time >= self.release_time  # Pasó tiempo de liberación
 
-    def pickup(self, current_game_time: float) -> bool:
-        """
-        Marca el pedido como recogido.
-        
-        Returns:
-            True si se pudo recoger exitosamente
-        """
-        if self.state in ("available",) or (self.state == "pending" and self.is_available(current_game_time)):
-            self.state = "picked_up"
-            self.pickup_time = current_game_time
-            return True
-        return False
+    # Ya no requiere tiempo, solo devuelve posicion de pickup
+    def pickup(self):
+        return self.pickup_pos
 
     def deliver(self, current_game_time: float) -> bool:
         """

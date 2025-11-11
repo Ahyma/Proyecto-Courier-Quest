@@ -1,6 +1,6 @@
 import pygame
 import random
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from .job import Job
 from .inventory import Inventory
 
@@ -25,7 +25,7 @@ class JobsManager:
             jobs_data: Datos de pedidos desde JSON/API
             game_start_time: Hora de inicio del juego para cálculos temporales
         """
-        self.game_start_time = game_start_time or datetime.now()
+        self.game_start_time = game_start_time or datetime.now(timezone.utc)
         self.all_jobs: list[Job] = self._load_jobs(jobs_data)  # Todos los pedidos
         self.available_jobs: list[Job] = []  # Pedidos disponibles para recoger
         self.completed_jobs: list[Job] = []  # Pedidos entregados exitosamente
@@ -161,6 +161,53 @@ class JobsManager:
             return delivered_job
 
         return None
+    
+    def check_and_interact(self, courier) -> None:
+        """
+        Verifica si el repartidor está en un punto de recogida o entrega y ejecuta
+        la acción correspondiente (usado al final de Courier.move).
+        
+        Args:
+            courier: La instancia del Courier (jugador o IA) que se movió.
+        """
+        current_pos = (courier.x, courier.y)
+        # Calcula el tiempo actual del juego en segundos
+        current_game_time = (datetime.now(timezone.utc) - self.game_start_time).total_seconds()
+        
+        # 1. Intentar Entregar (Si lleva un paquete)
+        if courier.has_jobs():
+            delivered_job = self.try_deliver_job(
+                inventory=courier.inventory,
+                courier_pos=current_pos,
+                current_game_time=current_game_time
+            )
+            if delivered_job:
+                # La entrega fue exitosa, actualiza el estado del courier
+                payout = delivered_job.payout * courier.get_reputation_multiplier()
+                # Necesitas que el objeto 'Job' tenga el método calculate_reputation_change()
+                reputation_change = getattr(delivered_job, 'calculate_reputation_change', lambda: 5)() 
+                
+                courier.income += payout
+                courier.update_reputation(reputation_change)
+                print(f"💰 {courier.__class__.__name__} entregó {delivered_job.id}: +${payout:.2f} | Rep: {reputation_change}")
+                return # Priorizar la entrega sobre la recogida
+        
+        # 2. Intentar Recoger (Si hay trabajos disponibles en la posición)
+        # Usar el método que has restaurado
+        jobs_to_pickup = self.get_jobs_at_position(current_pos)
+        
+        for job in jobs_to_pickup:
+            if courier.can_pickup_job(job):
+                # Usamos try_pickup_job ya que la IA lo puede necesitar también
+                picked_up = self.try_pickup_job(
+                    job_id=job.id,
+                    courier_pos=current_pos,
+                    inventory=courier.inventory,
+                    current_game_time=current_game_time
+                )
+                if picked_up:
+                    print(f"📦 {courier.__class__.__name__} recogió {job.id}")
+                    return # Solo recoger un trabajo por tick
 
     # ----------------------- DIBUJO ----------------------
     def draw_job_markers(self, screen, TILE_SIZE: int, courier_pos: tuple[int, int]) -> None:
@@ -276,3 +323,61 @@ class JobsManager:
             print(f"   📦 {job.id}: {pickup_pos} -> {dropoff_pos} | deadline {deadline_dt.time()}")
 
         print(f"✅ Generados {len(self.all_jobs)} pedidos.")
+    
+    # ------------------ MÉTODOS DE SOPORTE PARA IA ------------------
+
+    def register_ai_courier(self, ai_courier):
+        """Registra una referencia al courier de la IA para coordinar trabajos."""
+        self.ai_courier = ai_courier
+        
+    def get_job_by_id(self, job_id: str):
+        """Busca un trabajo disponible o activo por su ID."""
+        # Buscar en todos los trabajos (activos y disponibles)
+        for job in self.all_jobs:
+            if job.id == job_id:
+                return job
+        return None
+
+    def get_jobs_at_position(self, pos: tuple) -> list:
+        """Retorna todos los trabajos disponibles para recogida en una posición (x, y)."""
+        jobs_on_tile = []
+        for job in self.available_jobs:
+            # Asumimos que la propiedad pickup es una lista [x, y]
+            if job.pickup() == pos:
+                jobs_on_tile.append(job)
+        return jobs_on_tile
+        
+    def attempt_pickup(self, courier, job) -> bool:
+        """Intenta que un courier (humano o IA) recoja un trabajo."""
+        if courier.pickup_job(job):
+            # Mover el trabajo de disponible a 'tomado' (ya no disponible para otros)
+            if job in self.available_jobs:
+                self.available_jobs.remove(job)
+            job.is_taken = True
+            return True
+        return False
+        
+    def attempt_delivery(self, courier, job) -> bool:
+        """Intenta que un courier (humano o IA) entregue un trabajo."""
+        if courier.deliver_job(job):
+            # Marcar como completado
+            job.is_completed = True
+            self.completed_jobs.append(job)
+            
+            # Nota: El courier debe manejar su propia reputación y ganancias
+            return True
+        return False
+
+    def mark_job_as_taken(self, job_id: str):
+        """Marca un trabajo como tomado por alguien (IA o Humano) si aún está disponible."""
+        job = self.get_job_by_id(job_id)
+        if job and job in self.available_jobs:
+            self.available_jobs.remove(job)
+            job.is_taken = True
+
+    def get_available_jobs(self) -> list:
+        """
+        Retorna la lista de trabajos disponibles para que la IA decida.
+        (La IA necesita un método, no acceder directamente al atributo).
+        """
+        return self.available_jobs

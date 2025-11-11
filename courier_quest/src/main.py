@@ -2,6 +2,7 @@ import pygame
 import sys
 import os
 from datetime import datetime
+import random 
 
 from api.client import APIClient
 from api.cache import APICache
@@ -17,7 +18,12 @@ from game.jobs_manager import JobsManager
 from game.reputation import ReputationSystem
 from game.notifications import NotificationsOverlay
 from game.undo import UndoStack
-from game.menu import MainMenu  # NUEVO: Importar el menú
+from game.menu import MainMenu 
+from game.ai_courier import AIDifficulty, AI_Courier # Importar la enumeración y la clase IA
+from game.graph_map import GraphMap      
+from game.ai_strategy import EasyStrategy, MediumStrategy, HardStrategy
+
+
 
 
 # ------------------ CARGA DE IMÁGENES ------------------
@@ -67,9 +73,19 @@ def load_street_images():
         street_images["patron_base"] = None
     return street_images
 
+def create_save_state(courier, ai_courier, elapsed_time, weather_manager):
+    """Crea un diccionario con el estado completo del juego para la pila de "deshacer"."""
+    return {
+        "courier": courier.get_save_state(), 
+        "ai_courier": ai_courier.get_save_state(),
+        "elapsed_time": elapsed_time,
+        "weather_condition": getattr(weather_manager, "current_condition", None),
+        "weather_intensity": getattr(weather_manager, "current_intensity", None),
+    }
+
 
 # ------------------ FUNCIÓN DEL JUEGO PRINCIPAL ------------------
-def start_game(action):
+def start_game(action, ai_difficulty):
     """
     Función principal que inicia y ejecuta el juego.
     Maneja la inicialización, el bucle principal y la lógica del juego.
@@ -124,13 +140,23 @@ def start_game(action):
         print(f"Error al cargar la imagen del césped: {e}")
         cesped_image = None
 
-    # Carga de imagen del repartidor
+    # Carga de imagen del repartidor JUGADOR
     try:
         repartidor_image = pygame.image.load(os.path.join("images", "repartidor.png")).convert_alpha()
         repartidor_image = pygame.transform.scale(repartidor_image, (TILE_SIZE, TILE_SIZE))
     except pygame.error as e:
         print(f"Error al cargar la imagen del repartidor: {e}")
         repartidor_image = None
+        
+    # --- INICIO MODIFICACIÓN IA: Carga de imagen del AI Courier ---
+    # Carga de imagen del repartidor IA (usando fallback si no existe 'repartidor_ia.png')
+    try:
+        ai_courier_image = pygame.image.load(os.path.join("images", "repartidorIA.png")).convert_alpha()
+        ai_courier_image = pygame.transform.scale(ai_courier_image, (TILE_SIZE, TILE_SIZE))
+    except pygame.error as e:
+        print(f"Error al cargar la imagen del repartidor IA: {e}. Usando imagen de jugador como fallback.")
+        ai_courier_image = repartidor_image # Fallback
+    # --- FIN MODIFICACIÓN IA ---
 
     # Creación de objetos del juego
     game_world = World(
@@ -139,10 +165,53 @@ def start_game(action):
         grass_image=cesped_image,
         street_images=street_images,
     )
+    
+    # Repartidor JUGADOR (posición inicial por defecto 0,0)
     courier = Courier(start_x=0, start_y=0, image=repartidor_image)
 
     weather_manager = WeatherManager(weather_data)
     weather_visuals = WeatherVisuals((SCREEN_WIDTH, SCREEN_HEIGHT), TILE_SIZE)
+
+    # ------------------ INICIO MODIFICACIÓN IA: Inicialización ------------------
+
+    # 1. Creación del motor de rutas (GraphMap)
+    game_graph = GraphMap(game_world) 
+    game_world.weather_manager = weather_manager # Asignar WeatherManager al World para acceso desde GraphMap
+
+    # 2. Creación de la instancia del repartidor IA (jugador CPU)
+    ai_start_x = map_tile_width - 2 # Usamos -2 para evitar el borde, si es un edificio
+    ai_start_y = map_tile_height - 2 # Usamos -2 para evitar el borde, si es un edificio
+    ai_courier_start_pos = (ai_start_x, ai_start_y) 
+
+    ai_courier = AI_Courier(
+        start_x=ai_courier_start_pos[0],
+        start_y=ai_courier_start_pos[1],
+        image=ai_courier_image,
+        difficulty=ai_difficulty, 
+        graph_map=game_graph 
+    )
+
+    # --- NUEVA LÓGICA DE ASIGNACIÓN DE ESTRATEGIA (Patrón Strategy) ---
+    strategy_instance = None
+    if ai_difficulty == AIDifficulty.EASY:
+        strategy_instance = EasyStrategy()
+    elif ai_difficulty == AIDifficulty.MEDIUM:
+        strategy_instance = MediumStrategy()
+    elif ai_difficulty == AIDifficulty.HARD:
+        strategy_instance = HardStrategy()
+        
+    if strategy_instance:
+        ai_courier.set_strategy(strategy_instance)
+    # -----------------------------------------------------------------
+
+    # 3. Registrar el Courier de la IA en JobsManager para que reciba pedidos
+    jobs_manager.register_ai_courier(ai_courier) 
+
+    # 4. Reajustar la posición del jugador humano (mantenemos su lógica)
+    courier.x = map_tile_width - 1
+    courier.y = map_tile_height - 1
+    # ------------------ FIN MODIFICACIÓN IA: Inicialización ------------------
+
 
     # Configuración de HUD (Heads-Up Display)
     hud_area = pygame.Rect(SCREEN_WIDTH, 0, PANEL_WIDTH, SCREEN_HEIGHT)
@@ -166,6 +235,17 @@ def start_game(action):
                 "packages_delivered": courier.packages_delivered,
                 "_clean_streak": courier._clean_streak,
             },
+            # --- INICIO MODIFICACIÓN IA: Guardar estado de la IA ---
+            "ai_courier": {
+                "x": ai_courier.x,
+                "y": ai_courier.y,
+                "stamina": ai_courier.stamina,
+                "income": ai_courier.income,
+                "reputation": ai_courier.reputation,
+                "packages_delivered": ai_courier.packages_delivered,
+                "_clean_streak": ai_courier._clean_streak,
+            },
+            # --- FIN MODIFICACIÓN IA ---
             "elapsed_time": elapsed_time,
             "weather_condition": weather_manager.current_condition,
             "weather_intensity": weather_manager.current_intensity,
@@ -224,6 +304,7 @@ def start_game(action):
         print(f"   Pedidos disponibles: {len(jobs_manager.available_jobs)}")
 
     # Configuración de temporizadores y metas
+    movement_timer = 0.0
     elapsed_time = 0.0
     max_time = map_info.get("max_time", 900)
     goal_income = map_info.get("goal", 0)
@@ -234,6 +315,11 @@ def start_game(action):
             loaded_data = load_slot("slot1.sav")
             if loaded_data:
                 courier.load_state(loaded_data.get("courier", {}))
+                
+                # --- INICIO MODIFICACIÓN IA: Carga de estado de la IA ---
+                ai_courier.load_state(loaded_data.get("ai_courier", {}))
+                # --- FIN MODIFICACIÓN IA ---
+                
                 elapsed_time = loaded_data.get("elapsed_time", 0.0)
                 print("📂 Partida cargada desde el menú.")
                 notifier.success("Partida cargada")
@@ -354,6 +440,16 @@ def start_game(action):
                         courier.reputation = saved_state["courier"]["reputation"]
                         courier.packages_delivered = saved_state["courier"]["packages_delivered"]
                         courier._clean_streak = saved_state["courier"]["_clean_streak"]
+                        
+                        # --- INICIO MODIFICACIÓN IA: Restaurar estado de la IA ---
+                        ai_courier.x = saved_state["ai_courier"]["x"]
+                        ai_courier.y = saved_state["ai_courier"]["y"]
+                        ai_courier.stamina = saved_state["ai_courier"]["stamina"]
+                        ai_courier.income = saved_state["ai_courier"]["income"]
+                        ai_courier.reputation = saved_state["ai_courier"]["reputation"]
+                        ai_courier.packages_delivered = saved_state["ai_courier"]["packages_delivered"]
+                        ai_courier._clean_streak = saved_state["ai_courier"]["_clean_streak"]
+                        # --- FIN MODIFICACIÓN IA ---
                         
                         elapsed_time = saved_state["elapsed_time"]
                         
@@ -540,7 +636,13 @@ def start_game(action):
 
                 # Guardar partida (Ctrl+S)
                 elif event.key == pygame.K_s and pygame.key.get_mods() & pygame.KMOD_CTRL:
-                    data_to_save = {"courier": courier.get_save_state(), "elapsed_time": elapsed_time}
+                    # --- INICIO MODIFICACIÓN IA: Incluir datos de la IA al guardar ---
+                    data_to_save = {
+                        "courier": courier.get_save_state(), 
+                        "ai_courier": ai_courier.get_save_state(),
+                        "elapsed_time": elapsed_time
+                    }
+                    # --- FIN MODIFICACIÓN IA ---
                     save_slot("slot1.sav", data_to_save)
                     print("💾 Partida guardada.")
                     notifier.success("Partida guardada")
@@ -551,6 +653,9 @@ def start_game(action):
                         loaded_data = load_slot("slot1.sav")
                         if loaded_data:
                             courier.load_state(loaded_data.get("courier", {}))
+                            # --- INICIO MODIFICACIÓN IA: Cargar datos de la IA ---
+                            ai_courier.load_state(loaded_data.get("ai_courier", {}))
+                            # --- FIN MODIFICACIÓN IA ---
                             elapsed_time = loaded_data.get("elapsed_time", 0.0)
                             print("📂 Partida cargada.")
                             notifier.success("Partida cargada")
@@ -566,19 +671,35 @@ def start_game(action):
                 if event.key in keys_pressed:
                     keys_pressed[event.key] = False
 
-        # MOVIMIENTO CONTINUO DEL REPARTIDOR
+        # MOVIMIENTO CONTINUO DEL REPARTIDOR JUGADOR
         dx, dy = 0, 0
 
-        # Determinar dirección del movimiento basado en teclas presionadas
-        if keys_pressed[pygame.K_UP]:
-            dy = -1
-        elif keys_pressed[pygame.K_DOWN]:
-            dy = 1
+        # Sincronización de Movimiento del Jugador
+        movement_timer += delta_time
+        move_delay = courier.get_time_per_tile(game_world, weather_manager)
 
-        if keys_pressed[pygame.K_LEFT]:
-            dx = -1
-        elif keys_pressed[pygame.K_RIGHT]:
-            dx = 1
+        if movement_timer >= move_delay:
+            
+            if keys_pressed[pygame.K_UP] or keys_pressed[pygame.K_DOWN] or keys_pressed[pygame.K_LEFT] or keys_pressed[pygame.K_RIGHT]:
+                
+                # Guarda estado antes del movimiento (usa la función recién definida)
+                current_state = create_save_state(courier, ai_courier, elapsed_time, weather_manager)
+                if current_state:
+                    undo_stack.push(current_state)
+                
+                # Reinicia el temporizador
+                movement_timer = 0.0 
+                
+                # Ejecuta el movimiento
+                if keys_pressed[pygame.K_UP]:
+                    courier.move(0, -1, game_world, jobs_manager) 
+                elif keys_pressed[pygame.K_DOWN]:
+                    courier.move(0, 1, game_world, jobs_manager)
+                elif keys_pressed[pygame.K_LEFT]:
+                    courier.move(-1, 0, game_world, jobs_manager) 
+                elif keys_pressed[pygame.K_RIGHT]:
+                    courier.move(1, 0, game_world, jobs_manager)
+
 
         # Ejecutar movimiento si hay dirección y no está en cooldown
         if (dx != 0 or dy != 0) and move_cooldown <= 0:
@@ -605,10 +726,15 @@ def start_game(action):
         if move_cooldown > 0:
             move_cooldown -= delta_time
 
+
         # ACTUALIZACIÓN DEL ESTADO DEL JUEGO
         courier_pos = (courier.x, courier.y)
         jobs_manager.update(elapsed_time, courier_pos)
         weather_manager.update(delta_time)
+
+        if ai_courier:
+            # Esto llama a update(), que internamente usa la estrategia para decidir y moverse.
+            ai_courier.update(delta_time, game_world, weather_manager, jobs_manager)
 
         # Log periódico del estado del juego
         if int(elapsed_time) % 30 == 0 and int(elapsed_time) > 0:
@@ -622,7 +748,13 @@ def start_game(action):
         # Dibujar mundo, marcadores de pedidos y repartidor
         game_world.draw(screen)
         jobs_manager.draw_job_markers(screen, TILE_SIZE, courier_pos)
-        courier.draw(screen, TILE_SIZE)
+        
+        # --- INICIO MODIFICACIÓN IA: Dibujar la IA ---
+        ai_courier.draw(screen, TILE_SIZE) # Dibujar el repartidor IA primero
+        hud.draw_ai_stats(screen, ai_courier)
+        # --- FIN MODIFICACIÓN IA ---
+        
+        courier.draw(screen, TILE_SIZE) # Dibujar el repartidor jugador (para que quede encima si hay solapamiento)
 
         # Actualizar y dibujar efectos climáticos
         current_condition = weather_manager.get_current_condition()
@@ -718,8 +850,19 @@ def main():
         pygame.quit()
         sys.exit()
     
+    ai_difficulty = AIDifficulty.MEDIUM # Valor por defecto
+
     # Iniciar el juego según la acción seleccionada
-    start_game(game_action)
+    if isinstance(game_action, dict):
+        action_type = game_action.get("action")
+        # Si el menú pasó una dificultad, la guardamos
+        ai_difficulty = game_action.get("difficulty", AIDifficulty.MEDIUM)
+    else:
+        # Si es un string (ej. "new_game"), usamos el tipo directamente
+        action_type = game_action
+    
+    # Iniciar el juego, pasando la dificultad de la IA
+    start_game(action_type, ai_difficulty)
 
 
 if __name__ == "__main__":

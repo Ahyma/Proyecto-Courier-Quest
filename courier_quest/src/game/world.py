@@ -154,14 +154,37 @@ class World:
         tile_type = self.tiles[y][x]
         return tile_type != "B"  # No edificio
        
+    def get_adjacent_walkable_cells(self, x, y):
+        """
+        Retorna una lista de tuplas (x, y) de celdas adyacentes transitables.
+        
+        Utilizado por la IA para determinar los movimientos posibles, asegurando
+        que no intenten moverse hacia edificios o fuera del mapa.
+
+        Args:
+            x, y: Posición actual del courier.
+            
+        Returns:
+            Lista de posiciones (x, y) transitables adyacentes.
+        """
+        directions = [(0, 1), (0, -1), (1, 0), (-1, 0)] # Norte, Sur, Este, Oeste
+        walkable_cells = []
+        
+        for dx, dy in directions:
+            nx, ny = x + dx, y + dy
+            # Reutiliza el método existente para verificar límites y transitabilidad
+            if self.is_walkable(nx, ny): 
+                walkable_cells.append((nx, ny))
+                
+        return walkable_cells
+
     def surface_weight_at(self, x, y):
         """
         Obtiene el peso de la superficie en una posición.
         
         El peso afecta la velocidad de movimiento:
-        - 1.0 = velocidad normal
-        - <1.0 = más lento
-        - >1.0 = más rápido
+        - 1.0 = velocidad normal (Calle)
+        - <1.0 = más lento (Césped)
         
         Returns:
             Multiplicador de velocidad para la superficie
@@ -171,9 +194,16 @@ class World:
 
         tile_type = self.tiles[y][x]
         
-        # Buscar en la leyenda del mapa el peso de la superficie
-        legend = self.map_data.get('legend', {})
-        weight = legend.get(tile_type, {}).get('surface_weight', 1.0)
+        # DEFINICIÓN MANUAL DE PESOS para asegurar la penalización del pasto/parque
+        if tile_type == "C": # Calle: Velocidad normal
+            weight = 1.0
+        elif tile_type == "P": # Parque/Césped: 50% más lento (ej: peso de 0.66 hace que 1.0/0.66 = ~1.5)
+            weight = 0.66 
+        elif tile_type == "B": # Edificio: Nunca se debería llegar aquí si is_walkable funciona, pero por si acaso.
+            weight = 0.001 
+        else: # Otros (por defecto, como la calle)
+            weight = 1.0 
+            
         return weight
 
     def get_building_edges(self):
@@ -214,3 +244,17 @@ class World:
                 if self.tiles[y][x] == "C":  # Calle
                     streets.append((x, y))
         return streets
+    
+    def is_resting_spot(self, x: int, y: int) -> bool:
+        """
+        Verifica si una posición (x, y) es una celda de descanso.
+        
+        Las celdas de descanso se definen como "Parque/césped" (tipo de tile "P").
+        """
+        # Verificar si las coordenadas están dentro de los límites
+        if not (0 <= x < self.width and 0 <= y < self.height):
+            return False 
+        
+        # El tipo de tile para Parques/Césped es "P" (según tu método draw)
+        tile_type = self.tiles[y][x] 
+        return tile_type == "P"
