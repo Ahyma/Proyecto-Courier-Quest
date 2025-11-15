@@ -1,6 +1,8 @@
 import pygame
 import sys
 import os
+import random
+from enum import Enum
 from datetime import datetime
 
 from api.client import APIClient
@@ -14,11 +16,185 @@ from game.save_game import save_slot, load_slot
 from game.score_board import save_score, load_scores
 from game.hud import HUD
 from game.jobs_manager import JobsManager
-from game.reputation import ReputationSystem  # ⬅️ para deltas de reputación (cancel/expired)
-from game.notifications import NotificationsOverlay  # ⬅️ NUEVO: overlay de notificaciones
+from game.reputation import ReputationSystem  # ⬅️ deltas de reputación
+from game.notifications import NotificationsOverlay  # ⬅️ Overlay de notificaciones
+
+# 🔧 RUTAS ABSOLUTAS PARA LAS IMÁGENES
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+IMAGES_DIR = os.path.join(BASE_DIR, "images")
 
 
-# ------------------ CARGA DE IMÁGENES ------------------
+# ==================== DIFICULTAD / IA SENCILLA ====================
+
+class AIDifficulty(Enum):
+    EASY = 1
+    MEDIUM = 2
+    HARD = 3
+
+
+class AICourier(Courier):
+    """
+    IA muy simple: se mueve aleatoriamente por el mapa.
+    La dificultad solo cambia qué tan rápido intenta moverse.
+    No toca pedidos (solo es un segundo jugador visible).
+    """
+    def __init__(self, start_x, start_y, image, difficulty: AIDifficulty):
+        super().__init__(start_x=start_x, start_y=start_y, image=image)
+        self.difficulty = difficulty
+        self.move_timer = 0.0
+
+    def _cooldown_for_difficulty(self) -> float:
+        if self.difficulty == AIDifficulty.EASY:
+            return 0.6
+        if self.difficulty == AIDifficulty.HARD:
+            return 0.20
+        return 0.35  # MEDIUM
+
+    def update(self, delta_time, game_world, weather_manager):
+        self.move_timer -= delta_time
+        if self.move_timer > 0:
+            return
+
+        # Nuevo cooldown
+        self.move_timer = self._cooldown_for_difficulty()
+
+        # Elegir un movimiento aleatorio
+        dx, dy = random.choice([(1, 0), (-1, 0), (0, 1), (0, -1)])
+
+        new_x, new_y = self.x + dx, self.y + dy
+        if not game_world.is_walkable(new_x, new_y):
+            return
+
+        stamina_cost_modifier = weather_manager.get_stamina_cost_multiplier()
+        climate_mult = weather_manager.get_speed_multiplier()
+        surface_weight = game_world.surface_weight_at(new_x, new_y)
+
+        self.move(
+            dx,
+            dy,
+            stamina_cost_modifier=stamina_cost_modifier,
+            surface_weight=surface_weight,
+            climate_mult=climate_mult,
+        )
+
+
+# ==================== MENÚ PRINCIPAL ====================
+
+class Menu:
+    """
+    Menú principal tipo:
+      Courier Quest II
+      [Dificultad IA: ...]
+      [Nueva partida]
+      [Cargar partida]
+      [Puntuaciones]
+      [Salir]
+    """
+
+    def __init__(self, screen):
+        self.screen = screen
+        self.width, self.height = screen.get_size()
+        pygame.font.init()
+        self.title_font = pygame.font.SysFont("arial", 64, bold=True)
+        self.button_font = pygame.font.SysFont("arial", 32, bold=True)
+
+        self.buttons = []
+        self._build_buttons()
+
+    def _build_buttons(self):
+        center_x = self.width // 2
+        start_y = self.height // 2 - 140
+        button_width = 360
+        button_height = 56
+        margin = 20
+
+        labels_actions = [
+            ("Dificultad IA", "toggle_difficulty"),
+            ("Nueva Partida", "new_game"),
+            ("Cargar Partida", "load_game"),
+            ("Puntuaciones", "show_scores"),
+            ("Salir", "exit"),
+        ]
+
+        self.buttons = []
+        for i, (label, action) in enumerate(labels_actions):
+            x = center_x - button_width // 2
+            y = start_y + i * (button_height + margin)
+            rect = pygame.Rect(x, y, button_width, button_height)
+            self.buttons.append({"rect": rect, "label": label, "action": action})
+
+    @staticmethod
+    def _difficulty_to_text(diff: AIDifficulty) -> str:
+        if diff == AIDifficulty.EASY:
+            return "EASY"
+        if diff == AIDifficulty.HARD:
+            return "HARD"
+        return "MEDIUM"
+
+    @staticmethod
+    def _next_difficulty(diff: AIDifficulty) -> AIDifficulty:
+        if diff == AIDifficulty.EASY:
+            return AIDifficulty.MEDIUM
+        if diff == AIDifficulty.MEDIUM:
+            return AIDifficulty.HARD
+        return AIDifficulty.EASY
+
+    def show(self, current_difficulty: AIDifficulty):
+        """
+        Bucle del menú.
+        Devuelve (action, difficulty).
+        """
+        clock = pygame.time.Clock()
+        running = True
+        difficulty = current_difficulty
+
+        while running:
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    return "exit", difficulty
+                if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                    mx, my = event.pos
+                    for btn in self.buttons:
+                        if btn["rect"].collidepoint(mx, my):
+                            if btn["action"] == "toggle_difficulty":
+                                difficulty = self._next_difficulty(difficulty)
+                            else:
+                                return btn["action"], difficulty
+
+            # Fondo gris
+            self.screen.fill((200, 200, 200))
+
+            # Título
+            title_surface = self.title_font.render("Courier Quest II", True, (0, 0, 0))
+            title_rect = title_surface.get_rect(center=(self.width // 2, 120))
+            self.screen.blit(title_surface, title_rect)
+
+            # Botones
+            for btn in self.buttons:
+                rect = btn["rect"]
+                color = (60, 60, 60)
+                if btn["action"] == "exit":
+                    color = (200, 0, 0)
+
+                pygame.draw.rect(self.screen, color, rect, border_radius=6)
+
+                if btn["action"] == "toggle_difficulty":
+                    text = f"Dificultad IA: {self._difficulty_to_text(difficulty)}"
+                else:
+                    text = btn["label"]
+
+                text_surf = self.button_font.render(text, True, (255, 255, 255))
+                text_rect = text_surf.get_rect(center=rect.center)
+                self.screen.blit(text_surf, text_rect)
+
+            pygame.display.flip()
+            clock.tick(60)
+
+        return None, difficulty
+
+
+# ==================== CARGA DE IMÁGENES ====================
+
 def load_building_images():
     """Carga y devuelve un diccionario de imágenes de edificios por su tamaño."""
     building_images = {}
@@ -31,36 +207,45 @@ def load_building_images():
         (8, 9): "edificio7x9.png",
     }
 
-    base_path = "images"
+    base_path = IMAGES_DIR
+
     for size, filename in image_names.items():
+        image_path = os.path.join(base_path, filename)
         try:
-            image = pygame.image.load(os.path.join(base_path, filename)).convert_alpha()
+            image = pygame.image.load(image_path).convert_alpha()
             building_images[size] = image
-            print(f"Imagen de edificio {filename} ({size}) cargada con éxito.")
-        except pygame.error as e:
-            print(f"Error al cargar imagen de edificio {filename}: {e}. Se usará color de fallback.")
+            print(f"Imagen de edificio {filename} ({size}) cargada con éxito desde: {image_path}")
+        except (pygame.error, FileNotFoundError) as e:
+            print(f"[AVISO] No se pudo cargar la imagen de edificio {filename} desde {image_path}: {e}")
+            print("        Se usará color de fallback para ese tamaño de edificio.")
             building_images[size] = None
+
     return building_images
 
 
 def load_street_images():
     """Carga la imagen única del patrón de calle (calle.png)."""
-    base_path = "images"
+    base_path = IMAGES_DIR
     street_images = {}
 
     filename = "calle.png"
+    image_path = os.path.join(base_path, filename)
+
     try:
-        image = pygame.image.load(os.path.join(base_path, filename)).convert_alpha()
+        image = pygame.image.load(image_path).convert_alpha()
         street_images["patron_base"] = pygame.transform.scale(image, (TILE_SIZE, TILE_SIZE))
-        print(f"Imagen {filename} cargada con éxito.")
-    except pygame.error as e:
-        print(f"Error CRÍTICO al cargar imagen de calle {filename}: {e}. Se usará color de fallback.")
+        print(f"Imagen {filename} cargada con éxito desde: {image_path}")
+    except (pygame.error, FileNotFoundError) as e:
+        print(f"[AVISO] No se pudo cargar la imagen de calle {filename} desde {image_path}: {e}")
+        print("        Se usará color de fallback para las calles.")
         street_images["patron_base"] = None
+
     return street_images
 
 
-# ------------------ JUEGO ------------------
-def main():
+# ==================== PARTIDA (JUEGO) ====================
+
+def start_game(ai_difficulty: AIDifficulty, load_saved: bool = False):
     # Inicialización de Pygame
     pygame.init()
 
@@ -92,7 +277,7 @@ def main():
     # Ventana
     screen_size = (SCREEN_WIDTH + PANEL_WIDTH, SCREEN_HEIGHT)
     screen = pygame.display.set_mode(screen_size)
-    pygame.display.set_caption("Courier Quest")
+    pygame.display.set_caption("Courier Quest - En Juego")
 
     # Reloj
     clock = pygame.time.Clock()
@@ -104,18 +289,22 @@ def main():
 
     # Césped
     try:
-        cesped_image = pygame.image.load(os.path.join("images", "cesped.png")).convert_alpha()
+        cesped_path = os.path.join(IMAGES_DIR, "cesped.png")
+        cesped_image = pygame.image.load(cesped_path).convert_alpha()
         cesped_image = pygame.transform.scale(cesped_image, (TILE_SIZE, TILE_SIZE))
-    except pygame.error as e:
-        print(f"Error al cargar la imagen del césped: {e}")
+    except (pygame.error, FileNotFoundError) as e:
+        print(f"[AVISO] No se pudo cargar la imagen del césped desde {cesped_path}: {e}")
+        print("        Se usará color de fallback para el césped.")
         cesped_image = None
 
-    # Repartidor
+    # Repartidor (imagen compartida humano + IA)
     try:
-        repartidor_image = pygame.image.load(os.path.join("images", "repartidor.png")).convert_alpha()
+        repartidor_path = os.path.join(IMAGES_DIR, "repartidor.png")
+        repartidor_image = pygame.image.load(repartidor_path).convert_alpha()
         repartidor_image = pygame.transform.scale(repartidor_image, (TILE_SIZE, TILE_SIZE))
-    except pygame.error as e:
-        print(f"Error al cargar la imagen del repartidor: {e}")
+    except (pygame.error, FileNotFoundError) as e:
+        print(f"[AVISO] No se pudo cargar la imagen del repartidor desde {repartidor_path}: {e}")
+        print("        Se usará un fallback para el repartidor.")
         repartidor_image = None
 
     # Mundo y sistemas
@@ -127,6 +316,14 @@ def main():
     )
     courier = Courier(start_x=0, start_y=0, image=repartidor_image)
 
+    # IA colocada en la esquina opuesta
+    ai_courier = AICourier(
+        start_x=map_tile_width - 1,
+        start_y=map_tile_height - 1,
+        image=repartidor_image,
+        difficulty=ai_difficulty,
+    )
+
     weather_manager = WeatherManager(weather_data)
     weather_visuals = WeatherVisuals((SCREEN_WIDTH, SCREEN_HEIGHT), TILE_SIZE)
 
@@ -134,10 +331,10 @@ def main():
     hud_area = pygame.Rect(SCREEN_WIDTH, 0, PANEL_WIDTH, SCREEN_HEIGHT)
     hud = HUD(hud_area, SCREEN_HEIGHT, TILE_SIZE)
 
-    # NUEVO: overlay de notificaciones (se dibuja dentro del panel/HUD)
+    # Overlay de notificaciones
     notifier = NotificationsOverlay(panel_width=PANEL_WIDTH, screen_height=SCREEN_HEIGHT)
 
-    # Generar pedidos si no hay JSON utilizable
+    # Generar pedidos si no hay JSON
     if not jobs_data or not jobs_data.get("data"):
         print("📦 Forzando generación de nuevos pedidos...")
         jobs_manager.generate_random_jobs(game_world, num_jobs=10)
@@ -158,6 +355,22 @@ def main():
     max_time = map_info.get("max_time", 900)  # s
     goal_income = map_info.get("goal", 0)
 
+    # Si se pidió cargar partida
+    if load_saved:
+        try:
+            loaded_data = load_slot("slot1.sav")
+            if loaded_data:
+                courier.load_state(loaded_data.get("courier", {}))
+                elapsed_time = loaded_data.get("elapsed_time", 0.0)
+                print("📂 Partida cargada desde slot1.sav (solo jugador humano).")
+                notifier.success("Partida cargada")
+            else:
+                print("Archivo de guardado vacío o corrupto.")
+                notifier.error("Guardado vacío o corrupto")
+        except FileNotFoundError:
+            print("No se encontró 'slot1.sav'. Se inicia nueva partida.")
+            notifier.error("No existe 'slot1.sav', se inicia nueva partida")
+
     # Bucle principal
     running = True
     while running:
@@ -168,7 +381,6 @@ def main():
         # Condiciones fin de juego
         if remaining_time <= 0:
             print("Game Over: se acabó el tiempo.")
-            # ⬇️ Guardar score también en derrota por tiempo
             final_score = courier.income * (1.05 if courier.reputation >= 90 else 1.0)
             save_score({
                 "score": round(final_score, 2),
@@ -181,7 +393,6 @@ def main():
 
         if courier.reputation < 20 and running:
             print("Game Over: reputación muy baja.")
-            # ⬇️ Guardar score también en derrota por reputación
             final_score = courier.income * (1.05 if courier.reputation >= 90 else 1.0)
             save_score({
                 "score": round(final_score, 2),
@@ -196,7 +407,7 @@ def main():
             print("¡Victoria! Meta alcanzada.")
             final_score = courier.income
             if courier.reputation >= 90:
-                final_score *= 1.05  # Bono por reputación alta (muestra final)
+                final_score *= 1.05  # Bono por reputación alta
             save_score({
                 "score": round(final_score, 2),
                 "income": round(courier.income, 2),
@@ -206,14 +417,12 @@ def main():
             notifier.success("¡Meta alcanzada! Score guardado")
             running = False
 
-        # Actualizaciones del estado
         courier_pos = (courier.x, courier.y)
         jobs_manager.update(elapsed_time, courier_pos)
         weather_manager.update(delta_time)
 
-        # Debug periódico
-        if int(elapsed_time) % 30 == 0 and int(elapsed_time) > 0:
-            print(f"⏰ Tiempo: {int(elapsed_time)}s | Pedidos disponibles: {len(jobs_manager.available_jobs)}")
+        # Actualizar IA (se mueve sola)
+        ai_courier.update(delta_time, game_world, weather_manager)
 
         # Eventos
         for event in pygame.event.get():
@@ -231,7 +440,7 @@ def main():
                 elif event.key == pygame.K_RIGHT:
                     dx = 1
 
-                # --- Pedidos ---
+                # --- Pedidos (jugador humano) ---
                 elif event.key == pygame.K_SPACE:  # Recoger
                     try:
                         nearby_jobs = jobs_manager.get_available_jobs_nearby(courier_pos, max_distance=1)
@@ -252,12 +461,10 @@ def main():
 
                 elif event.key == pygame.K_e:  # Entregar
                     if not courier.inventory.is_empty():
-                        # Guardamos referencia por si expira justo antes de entregar
                         _before = courier.inventory.current_job
                         delivered_job = jobs_manager.try_deliver_job(courier.inventory, courier_pos, elapsed_time)
 
                         if delivered_job:
-                            # Bono por reputación se toma del Courier (por si en el futuro cambia)
                             mult = courier.get_reputation_multiplier()
                             base_payout = delivered_job.payout * mult
                             if mult > 1.0:
@@ -266,7 +473,6 @@ def main():
 
                             courier.income += base_payout
 
-                            # Reputación según puntualidad (y racha interna del Courier)
                             reputation_change = delivered_job.calculate_reputation_change()
                             new_rep_below_20 = courier.update_reputation(reputation_change)
                             if reputation_change != 0:
@@ -280,7 +486,6 @@ def main():
 
                             if new_rep_below_20:
                                 print("Game Over: reputación muy baja.")
-                                # ⬇️ Guardar score también en derrota inmediata
                                 final_score = courier.income * (1.05 if courier.reputation >= 90 else 1.0)
                                 save_score({
                                     "score": round(final_score, 2),
@@ -291,12 +496,9 @@ def main():
                                 notifier.error("Derrota: reputación < 20 — partida guardada")
                                 running = False
                         else:
-                            # Si no se entregó y el job se marcó como expirado dentro de try_deliver_job,
-                            # aplicamos penalización -6.
                             if _before and _before.state == "expired":
                                 delta = ReputationSystem.for_delivery(
-                                    # status "expired" para usar la tabla (-6)
-                                    res=type("R", (), {"status": "expired"})()  # pequeño objeto con status
+                                    res=type("R", (), {"status": "expired"})()
                                 )
                                 new_rep_below_20 = courier.update_reputation(delta)
                                 print("⛔ Pedido expirado en inventario. Reputación -6 (total: {})".format(courier.reputation))
@@ -349,31 +551,7 @@ def main():
                             notifier.error("Derrota: reputación < 20 — partida guardada")
                             running = False
 
-                # --- NUEVO: Ver pedidos cercanos ---
-                elif event.key == pygame.K_a:
-                    try:
-                        nearby = jobs_manager.get_available_jobs_nearby(courier_pos, max_distance=3)
-                        if not nearby:
-                            print("🔎 No hay pedidos cercanos (≤3 celdas).")
-                            notifier.info("No hay pedidos cercanos (≤3)")
-                        else:
-                            print(f"🔎 Pedidos cercanos ({len(nearby)}):")
-                            for j in nearby:
-                                # Tiempo restante si Job lo soporta
-                                tl = None
-                                if hasattr(j, "get_time_until_deadline"):
-                                    try:
-                                        tl = int(j.get_time_until_deadline(elapsed_time))
-                                    except Exception:
-                                        tl = None
-                                tl_txt = f" | TTL: {tl}s" if tl is not None else ""
-                                print(f"   - {j.id} @ {j.pickup_pos} → {j.dropoff_pos} | $ {j.payout} | prio {getattr(j,'priority',0)}{tl_txt}")
-                            notifier.info(f"{len(nearby)} pedidos cercanos listados en consola")
-                    except Exception as e:
-                        print(f"Error al listar pedidos cercanos: {e}")
-                        notifier.error("Error listando pedidos cercanos")
-
-                # --- Ordenamiento real ---
+                # Ordenamiento inventario
                 elif event.key == pygame.K_F1:  # Prioridad
                     if not courier.inventory.is_empty():
                         courier.inventory.apply_sort("priority")
@@ -395,7 +573,7 @@ def main():
                         print("🔄 Orden ORIGINAL restaurada")
                         notifier.info("Orden ORIGINAL")
 
-                # --- Guardado/Carga ---
+                # Guardado/Carga
                 elif event.key == pygame.K_s and pygame.key.get_mods() & pygame.KMOD_CTRL:
                     data_to_save = {"courier": courier.get_save_state(), "elapsed_time": elapsed_time}
                     save_slot("slot1.sav", data_to_save)
@@ -437,7 +615,11 @@ def main():
         screen.fill((0, 0, 0))
         game_world.draw(screen)
         jobs_manager.draw_job_markers(screen, TILE_SIZE, courier_pos)
+
+        # Jugador humano
         courier.draw(screen, TILE_SIZE)
+        # IA
+        ai_courier.draw(screen, TILE_SIZE)
 
         # Clima
         current_condition = weather_manager.get_current_condition()
@@ -456,7 +638,7 @@ def main():
                 if abs(courier.x - job.dropoff_pos[0]) + abs(courier.y - job.dropoff_pos[1]) == 1:
                     near_dropoff = True
 
-        # HUD
+        # HUD (solo muestra datos del jugador humano; la IA es "visual")
         current_speed_mult = weather_manager.get_speed_multiplier()
         hud.draw(
             screen,
@@ -467,14 +649,59 @@ def main():
             goal_income,
             near_pickup,
             near_dropoff,
-            current_game_time=elapsed_time  # ⬅️ NUEVO: para tiempo restante del pedido en la card
+            current_game_time=elapsed_time
         )
 
-        # NUEVO: overlay de notificaciones (sobre el panel/HUD)
         notifier.update(delta_time)
         notifier.draw(screen, hud_area)
 
         pygame.display.flip()
+
+    pygame.quit()
+    sys.exit()
+
+
+# ==================== MAIN: MENÚ + PARTIDA ====================
+
+def main():
+    pygame.init()
+    screen = pygame.display.set_mode((800, 600))
+    pygame.display.set_caption("Courier Quest")
+
+    menu = Menu(screen)
+    ai_difficulty = AIDifficulty.MEDIUM
+
+    running = True
+    while running:
+        action, ai_difficulty = menu.show(ai_difficulty)
+
+        if action == "exit" or action is None:
+            running = False
+
+        elif action == "show_scores":
+            scores = load_scores()
+            print("=== PUNTUACIONES ===")
+            for idx, s in enumerate(scores, start=1):
+                print(f"{idx}. Score={s['score']} Income={s['income']} Time={s['time']} Rep={s['reputation']}")
+            input("Presiona ENTER para volver al menú...")
+
+        elif action == "new_game":
+            # Reiniciamos display para que start_game configure la ventana grande
+            pygame.display.quit()
+            pygame.display.init()
+            start_game(ai_difficulty, load_saved=False)
+            # Al terminar la partida, volvemos a crear la ventanita del menú
+            screen = pygame.display.set_mode((800, 600))
+            pygame.display.set_caption("Courier Quest")
+            menu = Menu(screen)
+
+        elif action == "load_game":
+            pygame.display.quit()
+            pygame.display.init()
+            start_game(ai_difficulty, load_saved=True)
+            screen = pygame.display.set_mode((800, 600))
+            pygame.display.set_caption("Courier Quest")
+            menu = Menu(screen)
 
     pygame.quit()
     sys.exit()
