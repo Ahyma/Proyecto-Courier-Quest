@@ -12,6 +12,7 @@ if TYPE_CHECKING:
     from game.graph_map import GraphMap
     from game.world import World
 
+# Esta clase determina el nivel de dificultad y la estrategia de la IA.
 
 class AIStrategy(ABC):
     """
