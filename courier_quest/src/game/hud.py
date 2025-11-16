@@ -1,6 +1,7 @@
 import pygame
 import os
 
+
 class HUD:
     PAD = 20
     VR_GAP = 6
@@ -78,14 +79,14 @@ class HUD:
         surf.blit(line, (self.rect.left + self.PAD, y))
         return 1
 
-    # --------- NUEVO: helper para formatear segs ---------
+    # --------- helper para formatear segs ---------
     def _fmt_secs(self, secs: float) -> str:
         secs = max(0, int(secs))
         m = secs // 60
         s = secs % 60
         return f"{m:02d}:{s:02d}"
 
-    # --------- NUEVO: badge de prioridad en la card ---------
+    # --------- badge de prioridad en la card ---------
     def _draw_priority_badge(self, screen, x, y, level: int):
         # colores suaves por nivel (0 bajo, 1 medio, 2 alto)
         if level >= 2:
@@ -166,23 +167,34 @@ class HUD:
 
         yy = y + self.CARD_PAD
         yy += self._blit(screen, "PEDIDO ACTUAL:", self.f, self.hl, x + self.CARD_PAD, yy)
-        # Badge de prioridad (nuevo) alineado a la derecha de la card
+        # Badge de prioridad alineado a la derecha
         try:
             prio = int(getattr(job, "priority", 0))
         except Exception:
             prio = 0
-        self._draw_priority_badge(screen, x + w - self.CARD_PAD - 92, yy - self.f.get_linesize() + 2, prio)
+        self._draw_priority_badge(
+            screen,
+            x + w - self.CARD_PAD - 92,
+            yy - self.f.get_linesize() + 2,
+            prio
+        )
 
         yy += self._blit(screen, f"ID: {job.id}", self.f, self.tx, x + self.CARD_PAD, yy)
         yy += self._blit(screen, f"Pago: ${job.payout:.1f}", self.f, self.tx, x + self.CARD_PAD, yy)
 
-        # Tiempo restante (nuevo) sólo si podemos calcularlo
+        # Tiempo restante
         if current_game_time is not None and hasattr(job, "get_time_until_deadline"):
             try:
                 tl = float(job.get_time_until_deadline(current_game_time))
-                # Colores: rojo 0s, ámbar <60s, blanco en otro caso
                 tcol = self.warn if tl <= 0 else (self.hl if tl < 60 else self.tx)
-                yy += self._blit(screen, f"Tiempo restante: {self._fmt_secs(tl)}", self.f, tcol, x + self.CARD_PAD, yy)
+                yy += self._blit(
+                    screen,
+                    f"Tiempo restante: {self._fmt_secs(tl)}",
+                    self.f,
+                    tcol,
+                    x + self.CARD_PAD,
+                    yy
+                )
             except Exception:
                 pass
 
@@ -190,7 +202,7 @@ class HUD:
 
     def draw(self, screen, courier, weather_condition, speed_multiplier,
              remaining_time=0, goal_income=0, near_pickup=False, near_dropoff=False,
-             current_game_time=None, ai_courier=None):  # <-- NUEVO parámetro opcional para IA
+             current_game_time=None, ai_courier=None):
         pygame.draw.rect(screen, self.bg, self.rect)
         pad = self.PAD
         x = self.rect.left + pad
@@ -198,8 +210,15 @@ class HUD:
         content_w = self.rect.width - 2*pad
 
         # --- Título ---
-        y += self._blit(screen, "COURIER QUEST", self.f_title, self.hl,
-                        self.rect.centerx, y, align="center") + self.SEC_GAP
+        y += self._blit(
+            screen,
+            "COURIER QUEST",
+            self.f_title,
+            self.hl,
+            self.rect.centerx,
+            y,
+            align="center"
+        ) + self.SEC_GAP
 
         # Tiempo / Ingresos
         minutes = int(remaining_time // 60)
@@ -207,7 +226,14 @@ class HUD:
         tcol = self.warn if remaining_time < 60 else self.tx
         y += self._blit(screen, f"Tiempo: {minutes:02d}:{seconds:02d}", self.f, tcol, x, y) + self.VR_GAP
         icol = self.ok if courier.income >= goal_income else self.tx
-        y += self._blit(screen, f"Ingresos: ${courier.income:.1f}/{int(goal_income)}", self.f, icol, x, y)
+        y += self._blit(
+            screen,
+            f"Ingresos: ${courier.income:.1f}/{int(goal_income)}",
+            self.f,
+            icol,
+            x,
+            y
+        )
         y += self.SEC_GAP + self._div(screen, y)
 
         # --- Repartidor ---
@@ -227,8 +253,15 @@ class HUD:
         fill_rect = pygame.Rect(x, y + self.VR_GAP, int(content_w * sta_pct), bar_h)
         pygame.draw.rect(screen, self.warn if sta_pct < 0.3 else self.ok, fill_rect)
         y = bar_rect.bottom + 4
-        y += self._blit(screen, f"Resistencia: {int(courier.stamina)}/{max_sta}",
-                        self.fs, self.tx, x + content_w//2, y, align="center")
+        y += self._blit(
+            screen,
+            f"Resistencia: {int(courier.stamina)}/{max_sta}",
+            self.fs,
+            self.tx,
+            x + content_w//2,
+            y,
+            align="center"
+        )
         y += self.SEC_GAP + self._div(screen, y)
 
         # Reputación
@@ -243,9 +276,39 @@ class HUD:
             y += self.SEC_GAP
             y += self._blit(screen, "--- IA (CPU) ---", self.fs, self.tx, x, y)
             y += self.VR_GAP
-            # Posición IA
+
+            # Posición de la IA
             y += self._blit(screen, f"Pos IA: ({ai_courier.x}, {ai_courier.y})", self.fs, self.tx, x, y)
-            # Stamina IA bar (smaller)
+
+            # Peso y pedidos activos de la IA
+            inv_ai = getattr(ai_courier, "inventory", None)
+            current_w_ai = getattr(inv_ai, "current_weight", 0.0) if inv_ai else 0.0
+            max_w_ai = getattr(inv_ai, "max_weight", getattr(ai_courier, "max_weight_ia", 0))
+            y += self._blit(
+                screen,
+                f"Peso IA: {current_w_ai:.1f}/{max_w_ai} kg",
+                self.fs,
+                self.tx,
+                x,
+                y
+            )
+
+            active_jobs_ai = 0
+            if inv_ai is not None:
+                if hasattr(inv_ai, "get_job_count"):
+                    active_jobs_ai = inv_ai.get_job_count()
+                elif hasattr(inv_ai, "jobs"):
+                    active_jobs_ai = len(inv_ai.jobs)
+            y += self._blit(
+                screen,
+                f"IA pedidos activos: {active_jobs_ai}",
+                self.fs,
+                self.tx,
+                x,
+                y
+            )
+
+            # Barra de resistencia de la IA
             max_sta_ai = max(1, int(getattr(ai_courier, "max_stamina", 100)))
             sta_pct_ai = max(0.0, min(1.0, ai_courier.stamina / max_sta_ai))
             bar_h_ai = 12
@@ -254,13 +317,36 @@ class HUD:
             fill_rect_ai = pygame.Rect(x, y + self.VR_GAP, int(content_w * sta_pct_ai), bar_h_ai)
             pygame.draw.rect(screen, self.warn if sta_pct_ai < 0.3 else self.ok, fill_rect_ai)
             y = bar_rect_ai.bottom + 2
-            y += self._blit(screen, f"IA Resistencia: {int(ai_courier.stamina)}/{max_sta_ai}", self.fs_small, self.tx, x + content_w//2, y, align="center")
+            y += self._blit(
+                screen,
+                f"IA Resistencia: {int(ai_courier.stamina)}/{max_sta_ai}",
+                self.fs_small,
+                self.tx,
+                x + content_w // 2,
+                y,
+                align="center"
+            )
 
             # Reputación IA
             y += self.SEC_GAP
             rep_ai = int(getattr(ai_courier, "reputation", 70))
             rcol_ai = self.ok if rep_ai >= 90 else self.warn if rep_ai < 30 else self.tx
             y += self._blit(screen, f"IA Reputación: {rep_ai}", self.fs, rcol_ai, x, y)
+
+            # Comparación de ingresos Jugador vs IA
+            y += self.VR_GAP
+            player_inc = getattr(courier, "income", 0.0)
+            ai_inc = getattr(ai_courier, "income", 0.0)
+            comp_col = self.ok if player_inc >= ai_inc else self.warn
+            y += self._blit(
+                screen,
+                f"Jugador: ${player_inc:.1f} vs IA: ${ai_inc:.1f}",
+                self.fs,
+                comp_col,
+                x,
+                y
+            )
+
             y += self.SEC_GAP + self._div(screen, y)
 
         # Inventario (solo mensaje)
@@ -288,12 +374,22 @@ class HUD:
         elif near_dropoff:
             contextual = "🟢 Presiona E para entregar"
 
-        est_top = self._draw_footer(screen, x, bottom, contextual, self.fs,
-                                    self.FOOTER_GAP_LINE, self.FOOTER_SEC_GAP)
-        pygame.draw.rect(screen, self.bg,
-                         pygame.Rect(self.rect.left, est_top, self.rect.width, bottom - est_top))
+        est_top = self._draw_footer(
+            screen,
+            x,
+            bottom,
+            contextual,
+            self.fs,
+            self.FOOTER_GAP_LINE,
+            self.FOOTER_SEC_GAP
+        )
+        pygame.draw.rect(
+            screen,
+            self.bg,
+            pygame.Rect(self.rect.left, est_top, self.rect.width, bottom - est_top)
+        )
 
-        # Mostrar solo una versión del pedido
+        # Mostrar card del pedido actual si hay espacio
         if hasattr(courier, "has_jobs") and courier.has_jobs():
             job = courier.get_current_job()
             if job and (est_top - y) > self.CARD_H_MIN + self.SEC_GAP:
