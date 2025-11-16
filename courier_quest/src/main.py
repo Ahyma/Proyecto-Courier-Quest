@@ -1,10 +1,40 @@
+"""
+imports:
+pygame: es para gráficos y manejo de eventos
+sys: es para funciones del sistema, como salir del programa
+os: es para manejo de rutas de archivos
+random: es para generar números aleatorios
+"""
 import pygame
 import sys
 import os
 import random
+
+"""
+from enum import enum: es para definir enumeraciones, que son conjuntos de constantes con nombre
+from datetime import datetime: es para manejar fechas y horas
+"""
 from enum import Enum
 from datetime import datetime
 
+"""
+from api:
+.client import APIClient: es para interactuar con una API externa
+.cache import APICache: es para almacenar en caché las respuestas de la API y evitar llamadas repetidas
+from game:
+.courier import Courier: es para manejar la lógica del repartidor
+.world import World: es para manejar el mundo del juego, como el mapa y los objetos
+.constants import TILE_SIZE, PANEL_WIDTH: es para constantes usadas en el juego, como tamaño de los tiles y paneles
+.weather_manager import WeatherManager: es para manejar las condiciones climáticas en el juego
+.pathfinding import find_path: es para encontrar caminos óptimos en el mapa (se usa para la IA del repartidor)
+.weather_visuals import WeatherVisuals: es para representar visualmente el clima en el juego
+.save_game import save_slot, load_slot: es para guardar y cargar partidas, usando "slots" o ranuras, para múltiples partidas guardadas
+.score_board import save_score, load_scores: es para manejar la tabla de puntuaciones del juego, guardando y cargando puntuaciones
+.hud import HUD: es para manejar la interfaz de usuario del juego (HUD - Heads-Up Display)
+.jobs_manager import JobsManager: es para manejar los trabajos o misiones que el repartidor debe completar (recoger y entregar paquetes)
+.reputation import ReputationSystem: es para manejar el sistema de reputación del repartidor, afectando desempeño y oportunidades
+.notifications import NotificationsOverlay: es para mostrar notificaciones al jugador durante el juego
+"""
 from api.client import APIClient
 from api.cache import APICache
 from game.courier import Courier
@@ -17,10 +47,10 @@ from game.save_game import save_slot, load_slot
 from game.score_board import save_score, load_scores
 from game.hud import HUD
 from game.jobs_manager import JobsManager
-from game.reputation import ReputationSystem  # ⬅️ deltas de reputación
-from game.notifications import NotificationsOverlay  # ⬅️ Overlay de notificaciones
+from game.reputation import ReputationSystem  #deltas de reputación
+from game.notifications import NotificationsOverlay  #Overlay de notificaciones
 
-# 🔧 RUTAS ABSOLUTAS PARA LAS IMÁGENES
+"""RUTAS ABSOLUTAS PARA LAS IMÁGENES"""
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 IMAGES_DIR = os.path.join(BASE_DIR, "images")
 
@@ -64,6 +94,11 @@ class AICourier(Courier):
             return
 
         # Nuevo cooldown
+        """
+        Establece el temporizador de movimiento según la dificultad de la IA.
+        O sea, define cada cuánto tiempo la IA puede moverse
+        EASY: 0.6s, MEDIUM: 0.35s, HARD: 0.20s
+        """
         self.move_timer = self._cooldown_for_difficulty()
 
         # Elegir un movimiento aleatorio
