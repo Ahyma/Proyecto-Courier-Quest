@@ -161,8 +161,7 @@ class AICourier(Courier):
                         dx, dy = choice
                     else:
                         dx, dy = 0, 0
-                else:
-                    if self.difficulty == AIDifficulty.HARD:
+                elif self.difficulty == AIDifficulty.HARD:
                         # Replan si no hay path o si cambió el clima o si la estamina es baja
                         need_replan = False
                         current_weather = weather_manager.get_current_condition()
@@ -196,20 +195,40 @@ class AICourier(Courier):
                                     dx, dy = nx - self.x, ny - self.y
                                     # advance index after performing move (below)
                         else:
-                            # fallback to greedy neighbor if no path found
+                            # fallback to greedy neighbor if no path found (HARD fallback)
                             best = None
                             best_dist = abs(self.x - dest[0]) + abs(self.y - dest[1])
-                            for dx, dy in neighbors:
-                                nx, ny = self.x + dx, self.y + dy
+                            for ndx, ndy in neighbors:
+                                nx, ny = self.x + ndx, self.y + ndy
                                 if not game_world.is_walkable(nx, ny):
                                     continue
                                 d = abs(nx - dest[0]) + abs(ny - dest[1])
                                 if d < best_dist:
                                     best_dist = d
-                                    best = (dx, dy)
+                                    best = (ndx, ndy)
 
                             if best:
                                 dx, dy = best
+                            else:
+                                dx, dy = 0, 0
+
+                else:
+                    # EASY (or any other unspecified difficulty): elegir vecino voraz que reduzca la distancia Manhattan
+                    best = None
+                    best_dist = abs(self.x - dest[0]) + abs(self.y - dest[1])
+                    for ndx, ndy in neighbors:
+                        nx, ny = self.x + ndx, self.y + ndy
+                        if not game_world.is_walkable(nx, ny):
+                            continue
+                        d = abs(nx - dest[0]) + abs(ny - dest[1])
+                        if d < best_dist:
+                            best_dist = d
+                            best = (ndx, ndy)
+
+                    if best:
+                        dx, dy = best
+                    else:
+                        dx, dy = 0, 0
 
                 # si dx,dy es 0,0 significa no se eligió movimiento válido
                 if dx == 0 and dy == 0:
