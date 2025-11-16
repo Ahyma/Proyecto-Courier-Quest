@@ -34,6 +34,34 @@ class Courier:
         else:
             return "normal"
 
+    """
+    Mueve el courier un paso en la cuadrícula considerando varios modificadores (clima, peso, reputación, resistencia)
+
+    ---------Parameters---------
+    dx : int
+        Desplazamiento en x (puede ser negativo)
+    dy : int
+        Desplazamiento en y (puede ser negativo)
+
+    stamina_cost_modifier : float
+        Modificador para el coste de stamina 
+    
+    surface_weight : float
+        Peso del terreno actual (afecta a la velocidad)
+
+    climate_mult : float
+        Multiplicador de velocidad según el clima actual
+
+    game_world :
+        Objeto que expone is_walkable(x: int, y: int) -> bool para
+        verificar si la nueva posición es transitable.
+        Si se proporciona, se usa game_world.is_walkable para evitar que el courier pase encima de edificios o de obstáculos
+
+    ---------Returns---------
+        True si el movimiento fue exitoso, False si no (por ejemplo, terreno no transitable)
+        True si se aplicó el movimiento (x, y actualizados)
+        False si el movimiento fue bloqueado (por ejemplo, tile no transitable)
+    """
     def move(self, dx, dy, stamina_cost_modifier=1.0, surface_weight=1.0, climate_mult=1.0, game_world=None):
         Mpeso = max(0.8, 1 - 0.03 * self.current_weight)
         Mrep = 1.03 if self.reputation >= 90 else 1.0

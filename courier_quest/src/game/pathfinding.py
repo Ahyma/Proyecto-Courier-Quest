@@ -10,19 +10,43 @@ superficies pesadas o con clima adverso resulten en un coste mayor.
 from heapq import heappush, heappop
 from typing import Optional, Tuple, List
 
+"""
+manhattan calcula la distancia Manhattan entre dos puntos
+La distancia Manhattan es la suma de las diferencias absolutas de sus coordenadas
+Es decir, para dos puntos a=(x1,y1) y b=(x2,y2), la distancia Manhattan es |x1 - x2| + |y1 - y2|
+"""
 def manhattan(a: Tuple[int,int], b: Tuple[int,int]) -> int:
     return abs(a[0]-b[0]) + abs(a[1]-b[1])
 
 
 def find_path(start: Tuple[int,int], goal: Tuple[int,int], world, weather_manager, courier=None, max_nodes: int = 10000) -> Optional[List[Tuple[int,int]]]:
-    """Busca el camino óptimo usando A* entre `start` y `goal`.
+    """
+    Calcula un camino usando A* entre dos posiciones en la cuadrícula.
 
-    - `world` debe exponer `is_walkable(x,y)` y `surface_weight_at(x,y)`.
-    - `weather_manager` debe exponer `get_speed_multiplier()`.
-    - `courier` es opcional y puede usarse para penalizar rutas largas si la resistencia es baja.
+    ----------------Parameters---------------
+    start : tuple[int, int]
+        Posición inicial del courier expresada como (x, y) en coordenadas de tile
+    goal : tuple[int, int]
+        Posición objetivo (x, y) 
+    world :
+        Objeto que expone al menos:
+          - is_walkable(x: int, y: int) -> bool
+          - surface_weight_at(x: int, y: int) -> float
+    weather_manager :
+        Objeto que expone get_speed_multiplier() -> float. Es para
+        ajustar el coste de movimiento según el clima actual.
+    courier : Courier | None, opcional
+        Si se proporciona, se usa su estado de stamina para penalizar
+        rutas largas cuando la resistencia es baja.
+    max_nodes : int
+        Límite de nodos expandidos para evitar que A* consuma demasiados
+        recursos en mapas grandes o sin solución.
 
-    Retorna lista de positions excluding `start` (es decir, primer elemento es el primer paso),
-    o `None` si no hay camino.
+    --------------Returns-----------
+    list[tuple[int, int]] | None
+        Lista de posiciones (x, y) que representan el camino desde el
+        primer paso después de `start` hasta `goal` inclusive. Si no se
+        encuentra camino, retorna None.
     """
     if start == goal:
         return []
@@ -59,7 +83,11 @@ def find_path(start: Tuple[int,int], goal: Tuple[int,int], world, weather_manage
                 continue
             # cost to move into (nx,ny)
             surface = world.surface_weight_at(nx, ny)
-            # base cost is surface weight scaled by inverse of speed (worse speed => more cost)
+            """
+            base cost = surface_weight * inverse of speed: (worse speed => more cost)
+            calles "pesadas" => surface_weight > 1 => más costosas
+            clima adverso => speed_mult < 1 => más costoso
+            """
             move_cost = surface * (1.0 / speed_mult)
             # small penalty if courier is low on stamina (prefer shorter routes)
             if courier is not None:

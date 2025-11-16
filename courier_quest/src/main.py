@@ -88,6 +88,29 @@ class AICourier(Courier):
             return 0.20
         return 0.35  # MEDIUM
 
+
+    """
+    Actualiza el estado del courier controlado por IA
+
+    Propositos principales:
+        - Mantener / actualizar el objetivo actual (`_target_job_id`, `_target_stage`)
+        - Seleccionar nuevos trabajos según la dificultad (EASY/MEDIUM/HARD)
+        - Replanificar rutas (HARD) cuando cambian el clima o la stamina
+        - Moverse un paso (o quedarse quieto) en función del plan
+        - Intentar recoger y entregar pedidos usando JobsManager
+    
+    --------Parameters---------
+    delta_time : float
+        Tiempo transcurrido desde el último frame, en segundos
+    game_world :
+        Mundo del juego; se usa para verificar transitabilidad de tiles
+    weather_manager :
+        Gestor de clima; provee multiplicadores de velocidad/coste de estamina
+    jobs_manager : JobsManager | None
+        Gestor de pedidos. Si es None, la IA solo se moverá sin interactuar con trabajos
+    current_game_time : float
+        Tiempo total transcurrido en la partida, en segundos
+    """
     def update(self, delta_time, game_world, weather_manager, jobs_manager=None, current_game_time: float = 0.0):
         self.move_timer -= delta_time
         if self.move_timer > 0:
@@ -305,19 +328,50 @@ class AICourier(Courier):
             return
 
     def _select_move_medium(self, target_job, game_world, weather_manager, neighbors, depth: int = 3, current_game_time: float = 0.0):
-        """Busca mediante lookahead de `depth` el movimiento (dx,dy) que maximiza
+        """
+        Busca mediante lookahead de `depth` el movimiento (dx, dy) que maximiza
         una función heurística simple:
             score = alpha * expected_payout - beta * distance_cost - gamma * weather_penalty
 
-        Para simplificar, `expected_payout` se cuenta si en el horizonte se alcanza el pickup;
-        `distance_cost` es la distancia restante hasta pickup; `weather_penalty` usa multiplicador de stamina.
+        Donde:
+        - expected_payout: se considera igual al payout del job si dentro del horizonte de `depth` pasos se alcanza el pickup
+        - distance_cost: distancia Manhattan restante desde la posición final simulada hasta el pickup
+        - weather_penalty: penalización basada en el multiplicador de coste de estamina y/o velocidad (clima adverso)
+
+        --------Parameters--------
+        target_job : Job
+            El job objetivo que la IA intenta completar (Pedido objetivo hacia el cual la IA planea moverse)
+        game_world :
+            Mundo del juego (expone is_walkable(x, y))
+        weather_manager :
+            Provee la información de clima actual para penalizar movimientos
+        neighbors : list[tuple[int, int]]
+            Lista de movimientos posibles (dx, dy) desde la posición actual
+        depth : int
+            Profundidad máxima del lookahead (longitud de las secuencias simuladas)
+        current_game_time : float
+            Tiempo actual de la partida en segundos
+
+        ---------Returns---------
+        tuple[int, int] | None
+            El movimiento (dx, dy) inicial de la secuencia con mejor puntaje,
+            o None si ninguna secuencia es válida.
         """
+
+
         if not target_job:
             return None
 
+        """
+        alpha: peso del payout del pedido
+        beta: penalización por distancia restante hasta el pickup
+        gamma: penalización por clima adverso (coste de estamina)
+        """
         alpha = 1.0
-        beta = 1.0
-        gamma = 20.0
+        #beta = 1.0
+        beta = 4.0
+        #gamma = 20.0
+        gamma = 8.0
 
         def simulate_move_path(start_x, start_y, seq):
             x, y = start_x, start_y
