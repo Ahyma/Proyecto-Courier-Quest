@@ -34,7 +34,7 @@ class Courier:
         else:
             return "normal"
 
-    def move(self, dx, dy, stamina_cost_modifier=1.0, surface_weight=1.0, climate_mult=1.0):
+    def move(self, dx, dy, stamina_cost_modifier=1.0, surface_weight=1.0, climate_mult=1.0, game_world=None):
         Mpeso = max(0.8, 1 - 0.03 * self.current_weight)
         Mrep = 1.03 if self.reputation >= 90 else 1.0
 
@@ -49,13 +49,26 @@ class Courier:
         if Mresistencia == 0:
             return
 
-        self.x += dx
-        self.y += dy
+        # Comprobar transitabilidad si se provee world
+        new_x = self.x + dx
+        new_y = self.y + dy
+        if game_world is not None:
+            try:
+                if not game_world.is_walkable(new_x, new_y):
+                    return False
+            except Exception:
+                # Si game_world no expone is_walkable correctamente, evitar crash y permitir movimiento
+                pass
+
+        # Aplicar movimiento
+        self.x = new_x
+        self.y = new_y
 
         base_stamina_cost = 0.5
         extra_weight_penalty = 0.2 * max(0, self.current_weight - 3)
         total_cost = (base_stamina_cost + extra_weight_penalty) * stamina_cost_modifier
         self.stamina = max(0, self.stamina - total_cost)
+        return True
 
     # ---------- Inventario ----------
     def can_pickup_job(self, job):

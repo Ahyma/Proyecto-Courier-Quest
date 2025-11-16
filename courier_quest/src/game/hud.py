@@ -190,7 +190,7 @@ class HUD:
 
     def draw(self, screen, courier, weather_condition, speed_multiplier,
              remaining_time=0, goal_income=0, near_pickup=False, near_dropoff=False,
-             current_game_time=None):  # <-- NUEVO parámetro opcional (compat)
+             current_game_time=None, ai_courier=None):  # <-- NUEVO parámetro opcional para IA
         pygame.draw.rect(screen, self.bg, self.rect)
         pad = self.PAD
         x = self.rect.left + pad
@@ -237,6 +237,31 @@ class HUD:
         rcol = self.ok if rep >= 90 else self.warn if rep < 30 else self.tx
         y += self._blit(screen, f"Reputación: {rep}", self.f, rcol, x, y)
         y += self.SEC_GAP + self._div(screen, y)
+
+        # --- IA (CPU) status (opcional) ---
+        if ai_courier is not None:
+            y += self.SEC_GAP
+            y += self._blit(screen, "--- IA (CPU) ---", self.fs, self.tx, x, y)
+            y += self.VR_GAP
+            # Posición IA
+            y += self._blit(screen, f"Pos IA: ({ai_courier.x}, {ai_courier.y})", self.fs, self.tx, x, y)
+            # Stamina IA bar (smaller)
+            max_sta_ai = max(1, int(getattr(ai_courier, "max_stamina", 100)))
+            sta_pct_ai = max(0.0, min(1.0, ai_courier.stamina / max_sta_ai))
+            bar_h_ai = 12
+            bar_rect_ai = pygame.Rect(x, y + self.VR_GAP, content_w, bar_h_ai)
+            pygame.draw.rect(screen, (50, 50, 50), bar_rect_ai)
+            fill_rect_ai = pygame.Rect(x, y + self.VR_GAP, int(content_w * sta_pct_ai), bar_h_ai)
+            pygame.draw.rect(screen, self.warn if sta_pct_ai < 0.3 else self.ok, fill_rect_ai)
+            y = bar_rect_ai.bottom + 2
+            y += self._blit(screen, f"IA Resistencia: {int(ai_courier.stamina)}/{max_sta_ai}", self.fs_small, self.tx, x + content_w//2, y, align="center")
+
+            # Reputación IA
+            y += self.SEC_GAP
+            rep_ai = int(getattr(ai_courier, "reputation", 70))
+            rcol_ai = self.ok if rep_ai >= 90 else self.warn if rep_ai < 30 else self.tx
+            y += self._blit(screen, f"IA Reputación: {rep_ai}", self.fs, rcol_ai, x, y)
+            y += self.SEC_GAP + self._div(screen, y)
 
         # Inventario (solo mensaje)
         y += self.SEC_GAP

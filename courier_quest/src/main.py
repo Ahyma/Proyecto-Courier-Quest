@@ -11,6 +11,7 @@ from game.courier import Courier
 from game.world import World
 from game.constants import TILE_SIZE, PANEL_WIDTH
 from game.weather_manager import WeatherManager
+from game.pathfinding import find_path
 from game.weather_visuals import WeatherVisuals
 from game.save_game import save_slot, load_slot
 from game.score_board import save_score, load_scores
@@ -42,6 +43,13 @@ class AICourier(Courier):
         super().__init__(start_x=start_x, start_y=start_y, image=image)
         self.difficulty = difficulty
         self.move_timer = 0.0
+        # Targeting / job state for the AI
+        self._target_job_id = None  # id del Job objetivo
+        self._target_stage = None  # "to_pickup" | "to_dropoff"
+        # HARD-specific: planned path (list of (x,y) positions), and index into it
+        self._path = None
+        self._path_index = 0
+        self._last_planned_weather = None
 
     def _cooldown_for_difficulty(self) -> float:
         if self.difficulty == AIDifficulty.EASY:
@@ -50,7 +58,7 @@ class AICourier(Courier):
             return 0.20
         return 0.35  # MEDIUM
 
-    def update(self, delta_time, game_world, weather_manager):
+    def update(self, delta_time, game_world, weather_manager, jobs_manager=None, current_game_time: float = 0.0):
         self.move_timer -= delta_time
         if self.move_timer > 0:
             return
@@ -59,23 +67,272 @@ class AICourier(Courier):
         self.move_timer = self._cooldown_for_difficulty()
 
         # Elegir un movimiento aleatorio
-        dx, dy = random.choice([(1, 0), (-1, 0), (0, 1), (0, -1)])
+        # Si hay un objetivo de trabajo, intentar gestionarlo (pickup / delivery)
+        target_job = None
+        if self._target_job_id and jobs_manager:
+            # Buscar referencia del job en all_jobs
+            for j in jobs_manager.all_jobs:
+                if j.id == self._target_job_id:
+                    target_job = j
+                    break
 
-        new_x, new_y = self.x + dx, self.y + dy
-        if not game_world.is_walkable(new_x, new_y):
+        # Si no hay objetivo válido, seleccionar uno según dificultad
+        if not target_job and jobs_manager:
+            available = [j for j in jobs_manager.available_jobs if j.state == "available"]
+            if available:
+                if self.difficulty == AIDifficulty.EASY:
+                    target_job = random.choice(available)
+                else:
+                    # MEDIUM: heurística simple, HARD fallback to highest payout
+                    def score_job(j):
+                        # distancia manhattan desde la posición actual hasta pickup
+                        d = abs(self.x - j.pickup_pos[0]) + abs(self.y - j.pickup_pos[1])
+                        return j.payout - 1.5 * d
+
+                    target_job = max(available, key=score_job)
+
+                if target_job:
+                    self._target_job_id = target_job.id
+                    self._target_stage = "to_pickup"
+
+        # Si tenemos objetivo y está en estado 'available' o 'picked_up', intentar acercarnos
+        if target_job:
+            # Si ya fue recogido por otro, limpiar objetivo
+            if target_job.state == "expired" or target_job.state == "delivered" or target_job.state == "cancelled":
+                self._target_job_id = None
+                self._target_stage = None
+                target_job = None
+
+        # Movimiento simple: vecino aleatorio que sea transitable
+        neighbors = [(1, 0), (-1, 0), (0, 1), (0, -1)]
+        random.shuffle(neighbors)
+        moved = False
+
+        # Si hay un target, priorizar mover hacia él (pickup o dropoff según stage)
+        if target_job:
+            dest = None
+            if self._target_stage == "to_pickup":
+                dest = target_job.pickup_pos
+            elif self._target_stage == "to_dropoff":
+                dest = target_job.dropoff_pos
+
+            if dest:
+                # Si MEDIUM, usar lookahead para elegir mejor movimiento; en EASY usar vecino y en HARD usar A* pathfinding
+                # manhattan es la suma de las diferencias absolutas de sus coordenadas, usada para medir distancia en cuadrícula. 
+                if self.difficulty == AIDifficulty.MEDIUM:
+                    # elegir movimiento mediante lookahead
+                    choice = self._select_move_medium(target_job, game_world, weather_manager, neighbors, depth=3, current_game_time=current_game_time)
+                    if choice:
+                        dx, dy = choice
+                    else:
+                        dx, dy = 0, 0
+                else:
+                    if self.difficulty == AIDifficulty.HARD:
+                        # Replan si no hay path o si cambió el clima o si la estamina es baja
+                        need_replan = False
+                        current_weather = weather_manager.get_current_condition()
+                        if self._path is None:
+                            need_replan = True
+                        if self._last_planned_weather != current_weather:
+                            need_replan = True
+                        if hasattr(self, 'stamina') and self.stamina < (0.25 * max(1, getattr(self, 'max_stamina', 100))):
+                            need_replan = True
+
+                        if need_replan:
+                            plan_goal = dest
+                            path = find_path((self.x, self.y), plan_goal, game_world, weather_manager, courier=self)
+                            self._path = path
+                            self._path_index = 0
+                            self._last_planned_weather = current_weather
+
+                        # If we have a path, follow next step
+                        if self._path:
+                            # validate next step
+                            if self._path_index >= len(self._path):
+                                # already at goal (or path consumed) -> no movement
+                                dx, dy = 0, 0
+                            else:
+                                nx, ny = self._path[self._path_index]
+                                # If next tile became non-walkable, force replan next tick
+                                if not game_world.is_walkable(nx, ny):
+                                    self._path = None
+                                    dx, dy = 0, 0
+                                else:
+                                    dx, dy = nx - self.x, ny - self.y
+                                    # advance index after performing move (below)
+                        else:
+                            # fallback to greedy neighbor if no path found
+                            best = None
+                            best_dist = abs(self.x - dest[0]) + abs(self.y - dest[1])
+                            for dx, dy in neighbors:
+                                nx, ny = self.x + dx, self.y + dy
+                                if not game_world.is_walkable(nx, ny):
+                                    continue
+                                d = abs(nx - dest[0]) + abs(ny - dest[1])
+                                if d < best_dist:
+                                    best_dist = d
+                                    best = (dx, dy)
+
+                            if best:
+                                dx, dy = best
+
+                # si dx,dy es 0,0 significa no se eligió movimiento válido
+                if dx == 0 and dy == 0:
+                    pass
+                else:
+                    new_x, new_y = self.x + dx, self.y + dy
+                    stamina_cost_modifier = weather_manager.get_stamina_cost_multiplier()
+                    climate_mult = weather_manager.get_speed_multiplier()
+                    surface_weight = game_world.surface_weight_at(new_x, new_y)
+                    self.move(
+                        dx,
+                        dy,
+                        stamina_cost_modifier=stamina_cost_modifier,
+                        surface_weight=surface_weight,
+                        climate_mult=climate_mult,
+                        game_world=game_world,
+                    )
+                    # If following a planned path, advance the index
+                    if self.difficulty == AIDifficulty.HARD and self._path:
+                        # If the move matched the planned next tile, advance
+                        if self._path_index < len(self._path):
+                            next_pos = self._path[self._path_index]
+                            if (self.x, self.y) == next_pos:
+                                self._path_index += 1
+                    moved = True
+
+                    # Si estamos en pickup/dropoff, intentar acción
+                    if self._target_stage == "to_pickup":
+                        # comprobación distancia para pickup (is_at_pickup usa distancia Manhattan ≤1)
+                        if target_job.is_at_pickup((self.x, self.y)) and jobs_manager:
+                            success = jobs_manager.try_pickup_job(target_job.id, (self.x, self.y), self.inventory, current_game_time)
+                            if success:
+                                # cambiar a entregar
+                                self._target_stage = "to_dropoff"
+                            else:
+                                # si falló porque expiró o no pudo añadirse, limpiar
+                                if target_job.is_expired(current_game_time) or not self.inventory.can_add_job(target_job):
+                                    self._target_job_id = None
+                                    self._target_stage = None
+
+                    elif self._target_stage == "to_dropoff":
+                        if self.inventory.current_job and self.inventory.current_job.is_at_dropoff((self.x, self.y)) and jobs_manager:
+                            delivered = jobs_manager.try_deliver_job(self.inventory, (self.x, self.y), current_game_time)
+                            if delivered:
+                                # cobro y reputación son gestionados por main loop; limpiamos objetivo
+                                self._target_job_id = None
+                                self._target_stage = None
+
+        
+
+        # Si no movimos hacia target, hacer movimiento aleatorio válido
+        if not moved:
+            for dx, dy in neighbors:
+                new_x, new_y = self.x + dx, self.y + dy
+                if not game_world.is_walkable(new_x, new_y):
+                    continue
+
+                stamina_cost_modifier = weather_manager.get_stamina_cost_multiplier()
+                climate_mult = weather_manager.get_speed_multiplier()
+                surface_weight = game_world.surface_weight_at(new_x, new_y)
+
+                self.move(
+                    dx,
+                    dy,
+                    stamina_cost_modifier=stamina_cost_modifier,
+                    surface_weight=surface_weight,
+                    climate_mult=climate_mult,
+                    game_world=game_world,
+                )
+                moved = True
+                break
+
+        if not moved:
             return
 
-        stamina_cost_modifier = weather_manager.get_stamina_cost_multiplier()
-        climate_mult = weather_manager.get_speed_multiplier()
-        surface_weight = game_world.surface_weight_at(new_x, new_y)
+    def _select_move_medium(self, target_job, game_world, weather_manager, neighbors, depth: int = 3, current_game_time: float = 0.0):
+        """Busca mediante lookahead de `depth` el movimiento (dx,dy) que maximiza
+        una función heurística simple:
+            score = alpha * expected_payout - beta * distance_cost - gamma * weather_penalty
 
-        self.move(
-            dx,
-            dy,
-            stamina_cost_modifier=stamina_cost_modifier,
-            surface_weight=surface_weight,
-            climate_mult=climate_mult,
-        )
+        Para simplificar, `expected_payout` se cuenta si en el horizonte se alcanza el pickup;
+        `distance_cost` es la distancia restante hasta pickup; `weather_penalty` usa multiplicador de stamina.
+        """
+        if not target_job:
+            return None
+
+        alpha = 1.0
+        beta = 1.0
+        gamma = 20.0
+
+        def simulate_move_path(start_x, start_y, seq):
+            x, y = start_x, start_y
+            total_stamina_pen = 0.0
+            for dx, dy in seq:
+                nx, ny = x + dx, y + dy
+                if not game_world.is_walkable(nx, ny):
+                    return None  # path invalid
+                # approximate stamina penalty by current weather stamina multiplier
+                total_stamina_pen += weather_manager.get_stamina_cost_multiplier()
+                x, y = nx, ny
+            return x, y, total_stamina_pen
+
+        best_move = None
+        best_score = float('-inf')
+
+        # Evaluate each first-step neighbor by enumerating all sequences up to depth
+        for first in neighbors:
+            # build list of sequences starting with `first`
+            sequences = [[first]]
+            for d in range(1, depth):
+                new_seqs = []
+                for seq in sequences:
+                    last_x, last_y = self.x, self.y
+                    for dx, dy in seq:
+                        last_x += dx
+                        last_y += dy
+                    for nb in neighbors:
+                        new_seq = seq + [nb]
+                        new_seqs.append(new_seq)
+                sequences.extend(new_seqs)
+
+            # evaluate sequences (but only need final pos for heuristic)
+            worst_seq_score = float('-inf')
+            valid_found = False
+            for seq in sequences:
+                res = simulate_move_path(self.x, self.y, seq)
+                if res is None:
+                    continue
+                valid_found = True
+                fx, fy, stamina_pen = res
+
+                # Check if pickup would be reachable at any step in this seq
+                reached_pickup = False
+                tx, ty = self.x, self.y
+                for dx, dy in seq:
+                    tx += dx
+                    ty += dy
+                    if target_job.is_at_pickup((tx, ty)):
+                        reached_pickup = True
+                        break
+
+                expected_payout = target_job.payout if reached_pickup else 0.0
+                distance_cost = abs(fx - target_job.pickup_pos[0]) + abs(fy - target_job.pickup_pos[1])
+                weather_penalty = stamina_pen
+
+                score = alpha * expected_payout - beta * distance_cost - gamma * weather_penalty
+                if score > worst_seq_score:
+                    worst_seq_score = score
+
+            if not valid_found:
+                continue
+
+            # the score for the first move is the best over sequences that start with it
+            if worst_seq_score > best_score:
+                best_score = worst_seq_score
+                best_move = first
+
+        return best_move
 
 
 # ==================== MENÚ PRINCIPAL ====================
@@ -421,8 +678,8 @@ def start_game(ai_difficulty: AIDifficulty, load_saved: bool = False):
         jobs_manager.update(elapsed_time, courier_pos)
         weather_manager.update(delta_time)
 
-        # Actualizar IA (se mueve sola)
-        ai_courier.update(delta_time, game_world, weather_manager)
+        # Actualizar IA (se mueve sola) — ahora con acceso a jobs_manager y tiempo de juego
+        ai_courier.update(delta_time, game_world, weather_manager, jobs_manager, elapsed_time)
 
         # Eventos
         for event in pygame.event.get():
@@ -609,6 +866,7 @@ def start_game(ai_difficulty: AIDifficulty, load_saved: bool = False):
                             stamina_cost_modifier=stamina_cost_modifier,
                             surface_weight=surface_weight,
                             climate_mult=climate_mult,
+                            game_world=game_world,
                         )
 
         # ---------- RENDER ----------
@@ -649,7 +907,8 @@ def start_game(ai_difficulty: AIDifficulty, load_saved: bool = False):
             goal_income,
             near_pickup,
             near_dropoff,
-            current_game_time=elapsed_time
+            current_game_time=elapsed_time,
+            ai_courier=ai_courier
         )
 
         notifier.update(delta_time)
