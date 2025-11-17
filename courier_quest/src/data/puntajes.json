@@ -139,6 +139,13 @@
       "time": 900.01,
       "reputation": 75,
       "timestamp": "2025-10-05T14:26:52.224909Z"
+    },
+    {
+      "score": 0.0,
+      "income": 0.0,
+      "time": 900.01,
+      "reputation": 70,
+      "timestamp": "2025-11-17T08:25:58.371771Z"
     }
   ]
 }
