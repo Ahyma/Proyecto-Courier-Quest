@@ -54,7 +54,7 @@ from game.notifications import NotificationsOverlay  # Overlay de notificaciones
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 IMAGES_DIR = os.path.join(BASE_DIR, "images")
 
-
+# ==================== DIFICULTAD / IA ====================
 # ==================== DIFICULTAD / IA ====================
 
 class AIDifficulty(Enum):
