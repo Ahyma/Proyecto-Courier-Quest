@@ -123,7 +123,20 @@ class AICourier(Courier):
         total_dist = dist_to_pickup + dist_pickup_to_drop
 
         stamina_mult = weather_manager.get_stamina_cost_multiplier()
-        est_cost = total_dist * stamina_mult
+
+        # Estamina actual integrada al coste efectivo:
+        # - stamina_ratio ≈ 1.0 si está llena
+        # - stamina_ratio ≈ 0.0 si está vacía
+        if self.max_stamina > 0:
+            stamina_ratio = self.stamina / self.max_stamina
+        else:
+            stamina_ratio = 1.0
+
+        # Si la estamina es baja, el "costo efectivo" del job aumenta.
+        # Factor entre 1.0 (estamina llena) y 2.0 (estamina en 0).
+        stamina_factor = 1.0 + (1.0 - stamina_ratio)
+
+        est_cost = total_dist * stamina_mult * stamina_factor
 
         prio = getattr(job, "priority", 1)
         priority_value = max(0, 2 - prio)  # prioridad 0 > 1 > 2
@@ -131,12 +144,12 @@ class AICourier(Courier):
         weight_penalty = self.inventory.current_weight
 
         score = (alpha * job.payout
-                 - beta * total_dist
-                 - gamma * est_cost
-                 + delta * priority_value
-                 - epsilon * weight_penalty)
+                - beta * total_dist
+                - gamma * est_cost
+                + delta * priority_value
+                - epsilon * weight_penalty)
         return score
-
+#===================================================================================
     def _tsp_like_score_for_job(self, job, candidates: list) -> float:
         """
         IA DIFÍCIL: estima el valor de hacer este job y luego otro (TSP aprox).
