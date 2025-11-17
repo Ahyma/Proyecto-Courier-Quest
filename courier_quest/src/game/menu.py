@@ -95,12 +95,42 @@ class Menu:
             title_rect = title_surface.get_rect(center=(self.width // 2, 120))
             self.screen.blit(title_surface, title_rect)
 
+            # -------- ESTADO DEL MOUSE PARA HOVER / CLICK VISUAL --------
+            mouse_pos = pygame.mouse.get_pos()
+            mouse_pressed = pygame.mouse.get_pressed()[0]  # True si botón izquierdo está presionado
+
             # Botones
             for btn in self.buttons:
                 rect = btn["rect"]
-                color = (60, 60, 60)
+
+                # Base por tipo de botón (igual que antes)
                 if btn["action"] == "exit":
-                    color = (200, 0, 0)
+                    base_color = (200, 0, 0)
+                else:
+                    base_color = (60, 60, 60)
+
+                # Hover / pressed
+                is_hover = rect.collidepoint(mouse_pos)
+                is_pressed = is_hover and mouse_pressed
+
+                if is_pressed:
+                    # Color cuando se mantiene presionado el mouse sobre el botón
+                    # (más oscuro)
+                    color = (
+                        max(base_color[0] - 40, 0),
+                        max(base_color[1] - 40, 0),
+                        max(base_color[2] - 40, 0),
+                    )
+                elif is_hover:
+                    # Color al pasar el mouse por encima (más claro)
+                    color = (
+                        min(base_color[0] + 40, 255),
+                        min(base_color[1] + 40, 255),
+                        min(base_color[2] + 40, 255),
+                    )
+                else:
+                    # Color normal
+                    color = base_color
 
                 pygame.draw.rect(self.screen, color, rect, border_radius=6)
 
