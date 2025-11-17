@@ -2,6 +2,7 @@
 import pygame
 
 from game.ai_courier import AIDifficulty
+from game.score_board import load_scores
 
 
 # ==================== MENÚ PRINCIPAL ====================
@@ -23,6 +24,7 @@ class Menu:
         pygame.font.init()
         self.title_font = pygame.font.SysFont("arial", 64, bold=True)
         self.button_font = pygame.font.SysFont("arial", 32, bold=True)
+        self.small_font = pygame.font.SysFont("arial", 20, bold=False)
 
         self.buttons = []
         self._build_buttons()
@@ -38,7 +40,7 @@ class Menu:
             ("Dificultad IA", "toggle_difficulty"),
             ("Nueva Partida", "new_game"),
             ("Cargar Partida", "load_game"),
-            ("Puntuaciones", "show_scores"),
+            ("Puntuaciones", "scores_screen"),
             ("Salir", "exit"),
         ]
 
@@ -65,6 +67,151 @@ class Menu:
             return AIDifficulty.HARD
         return AIDifficulty.EASY
 
+    # ---------- PANTALLA DE PUNTUACIONES ----------
+
+    def _format_timestamp(self, ts: str) -> str:
+        """Convierte el ISO a algo corto yyyy-mm-dd hh:mm. Si falla, devuelve el raw."""
+        if not ts:
+            return ""
+        try:
+            # Reemplazar 'Z' por '+00:00' si viene en ese formato
+            if ts.endswith("Z"):
+                ts = ts[:-1] + "+00:00"
+            from datetime import datetime
+            dt = datetime.fromisoformat(ts)
+            return dt.strftime("%Y-%m-%d %H:%M")
+        except Exception:
+            return ts
+
+    def _scores_screen(self) -> bool:
+        """
+        Muestra la pantalla de puntuaciones.
+        Devuelve True si el usuario cerró la ventana (QUIT),
+        False si solo volvió al menú con ESC.
+        """
+        clock = pygame.time.Clock()
+
+        # Cargar todos los scores ordenados
+        scores = load_scores()
+
+        offset = 0           # índice de inicio visible
+        max_visible = 10     # cuántas filas mostrar a la vez
+
+        running_scores = True
+        while running_scores:
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    # Cerrar juego completamente
+                    return True
+                if event.type == pygame.KEYDOWN:
+                    if event.key == pygame.K_ESCAPE:
+                        # Volver al menú principal
+                        running_scores = False
+                    elif event.key == pygame.K_UP:
+                        if offset > 0:
+                            offset -= 1
+                    elif event.key == pygame.K_DOWN:
+                        if offset + max_visible < len(scores):
+                            offset += 1
+
+            # Fondo
+            self.screen.fill((30, 30, 30))
+
+            # Título
+            title_surface = self.title_font.render("Puntuaciones", True, (255, 255, 255))
+            title_rect = title_surface.get_rect(center=(self.width // 2, 80))
+            self.screen.blit(title_surface, title_rect)
+
+            # Subtítulo / instrucciones
+            info_text = "ESC: volver | ↑/↓: desplazarse" if scores else "ESC: volver"
+            info_surface = self.small_font.render(info_text, True, (200, 200, 200))
+            info_rect = info_surface.get_rect(center=(self.width // 2, 130))
+            self.screen.blit(info_surface, info_rect)
+
+            # Cabecera de columnas
+            header_y = 180
+            header_x = 120
+            headers = ["#", "Score", "Ingresos", "Tiempo (s)", "Reputación", "Fecha"]
+            col_widths = [40, 100, 120, 130, 120, 240]
+
+            x = header_x
+            for i, h in enumerate(headers):
+                h_surf = self.small_font.render(h, True, (220, 220, 220))
+                self.screen.blit(h_surf, (x, header_y))
+                x += col_widths[i]
+
+            # Línea separadora
+            pygame.draw.line(
+                self.screen,
+                (120, 120, 120),
+                (header_x, header_y + 24),
+                (header_x + sum(col_widths), header_y + 24),
+                1,
+            )
+
+            # Contenido
+            list_y_start = header_y + 36
+
+            if not scores:
+                # Mensaje si no hay puntajes aún
+                msg_surface = self.small_font.render("No hay puntuaciones guardadas todavía.", True, (200, 200, 200))
+                msg_rect = msg_surface.get_rect(center=(self.width // 2, list_y_start + 40))
+                self.screen.blit(msg_surface, msg_rect)
+            else:
+                # Mostrar sólo el segmento visible
+                visible_scores = scores[offset: offset + max_visible]
+                row_y = list_y_start
+
+                for idx, entry in enumerate(visible_scores, start=offset + 1):
+                    score = entry.get("score", 0.0)
+                    income = entry.get("income", 0.0)
+                    time_s = entry.get("time", 0.0)
+                    rep = entry.get("reputation", 0)
+                    ts = self._format_timestamp(entry.get("timestamp", ""))
+
+                    # Color alternado de filas
+                    if idx % 2 == 0:
+                        row_bg = (40, 40, 40)
+                    else:
+                        row_bg = (50, 50, 50)
+                    pygame.draw.rect(
+                        self.screen,
+                        row_bg,
+                        pygame.Rect(header_x - 10, row_y - 4, sum(col_widths) + 20, 28),
+                    )
+
+                    # Preparar cada columna
+                    values = [
+                        str(idx),
+                        f"{score:.2f}",
+                        f"{income:.2f}",
+                        f"{time_s:.1f}",
+                        str(rep),
+                        ts,
+                    ]
+
+                    x = header_x
+                    for i, val in enumerate(values):
+                        v_surf = self.small_font.render(val, True, (230, 230, 230))
+                        self.screen.blit(v_surf, (x, row_y))
+                        x += col_widths[i]
+
+                    row_y += 30  # siguiente fila
+
+                # Indicador de página / offset
+                page_info = f"{offset + 1}-{min(offset + max_visible, len(scores))} de {len(scores)}"
+                page_surf = self.small_font.render(page_info, True, (200, 200, 200))
+                page_rect = page_surf.get_rect(center=(self.width // 2, self.height - 40))
+                self.screen.blit(page_surf, page_rect)
+
+            pygame.display.flip()
+            clock.tick(60)
+
+        # Volver al menú sin cerrar el juego
+        return False
+
+    # ---------- LOOP PRINCIPAL DEL MENÚ ----------
+
     def show(self, current_difficulty: AIDifficulty):
         """
         Bucle del menú.
@@ -84,6 +231,12 @@ class Menu:
                         if btn["rect"].collidepoint(mx, my):
                             if btn["action"] == "toggle_difficulty":
                                 difficulty = self._next_difficulty(difficulty)
+                            elif btn["action"] == "scores_screen":
+                                # Entrar a la pantalla de puntuaciones
+                                quit_game = self._scores_screen()
+                                if quit_game:
+                                    return "exit", difficulty
+                                # Si no se cerró la ventana, simplemente seguimos en el menú
                             else:
                                 return btn["action"], difficulty
 
@@ -103,7 +256,7 @@ class Menu:
             for btn in self.buttons:
                 rect = btn["rect"]
 
-                # Base por tipo de botón (igual que antes)
+                # Base por tipo de botón
                 if btn["action"] == "exit":
                     base_color = (200, 0, 0)
                 else:
@@ -114,22 +267,18 @@ class Menu:
                 is_pressed = is_hover and mouse_pressed
 
                 if is_pressed:
-                    # Color cuando se mantiene presionado el mouse sobre el botón
-                    # (más oscuro)
                     color = (
                         max(base_color[0] - 40, 0),
                         max(base_color[1] - 40, 0),
                         max(base_color[2] - 40, 0),
                     )
                 elif is_hover:
-                    # Color al pasar el mouse por encima (más claro)
                     color = (
                         min(base_color[0] + 40, 255),
                         min(base_color[1] + 40, 255),
                         min(base_color[2] + 40, 255),
                     )
                 else:
-                    # Color normal
                     color = base_color
 
                 pygame.draw.rect(self.screen, color, rect, border_radius=6)

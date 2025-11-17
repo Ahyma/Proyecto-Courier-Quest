@@ -1,4 +1,3 @@
-# game/game_loop.py
 import pygame
 import sys
 import os
@@ -166,9 +165,9 @@ def start_game(ai_difficulty: AIDifficulty, load_saved: bool = False):
     weather_manager = WeatherManager(weather_data)
     weather_visuals = WeatherVisuals((SCREEN_WIDTH, SCREEN_HEIGHT), TILE_SIZE)
 
-    # HUD
+    # HUD: ahora recibe también ai_difficulty para mostrarla en pantalla
     hud_area = pygame.Rect(SCREEN_WIDTH, 0, PANEL_WIDTH, SCREEN_HEIGHT)
-    hud = HUD(hud_area, SCREEN_HEIGHT, TILE_SIZE)
+    hud = HUD(hud_area, SCREEN_HEIGHT, TILE_SIZE, ai_difficulty=ai_difficulty)
 
     # Overlay de notificaciones
     notifier = NotificationsOverlay(panel_width=PANEL_WIDTH, screen_height=SCREEN_HEIGHT)
@@ -193,6 +192,9 @@ def start_game(ai_difficulty: AIDifficulty, load_saved: bool = False):
     elapsed_time = 0.0
     max_time = map_info.get("max_time", 900)  # s
     goal_income = map_info.get("goal", 0)
+
+    # Flag de debug: mostrar ruta IA
+    show_ai_path = False
 
     # Si se pidió cargar partida
     if load_saved:
@@ -412,6 +414,13 @@ def start_game(ai_difficulty: AIDifficulty, load_saved: bool = False):
                         print("🔄 Orden ORIGINAL restaurada")
                         notifier.info("Orden ORIGINAL")
 
+                # DEBUG: mostrar ruta IA
+                elif event.key == pygame.K_F5:
+                    show_ai_path = not show_ai_path
+                    estado = "ON" if show_ai_path else "OFF"
+                    print(f"[DEBUG] Ruta IA: {estado}")
+                    notifier.info(f"Ruta IA (F5): {estado}")
+
                 # Guardado/Carga
                 elif event.key == pygame.K_s and pygame.key.get_mods() & pygame.KMOD_CTRL:
                     data_to_save = {"courier": courier.get_save_state(), "elapsed_time": elapsed_time}
@@ -454,6 +463,12 @@ def start_game(ai_difficulty: AIDifficulty, load_saved: bool = False):
         # ---------- RENDER ----------
         screen.fill((0, 0, 0))
         game_world.draw(screen)
+
+        # DEBUG: dibujar ruta IA si está activo el modo
+        if show_ai_path:
+            ai_path = ai_courier.get_debug_path()
+            game_world.draw_ai_path(screen, ai_path)
+
         jobs_manager.draw_job_markers(screen, TILE_SIZE, courier_pos)
 
         # Jugador humano

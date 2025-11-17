@@ -1,7 +1,8 @@
 import pygame
 from game.palette import TILE_COLORS
 from game.constants import TILE_SIZE
-import random 
+import random
+
 
 class World:
     def __init__(self, map_data, building_images=None, grass_image=None, street_images=None):
@@ -11,9 +12,9 @@ class World:
         self.height = self.map_data.get('height', 0)
         self.building_images = building_images if building_images else {}
         self.grass_image = grass_image
-        
+
         self.street_images = street_images if street_images else {}
-        
+
     def get_building_size(self, start_x, start_y, visited):
         """
         Calcula el tamaño de un bloque de edificios contiguo (B).
@@ -24,92 +25,136 @@ class World:
 
         queue = [(start_x, start_y)]
         visited.add((start_x, start_y))
-        
+
         min_x, max_x = start_x, start_x
         min_y, max_y = start_y, start_y
-        
+
         while queue:
             x, y = queue.pop(0)
-            
+
             min_x = min(min_x, x)
             max_x = max(max_x, x)
             min_y = min(min_y, y)
             max_y = max(max_y, y)
-            
+
             for dx, dy in [(0, 1), (0, -1), (1, 0), (-1, 0)]:
                 nx, ny = x + dx, y + dy
-                
-                if (0 <= nx < self.width and 
-                    0 <= ny < self.height and 
-                    self.tiles[ny][nx] == "B" and 
+
+                if (0 <= nx < self.width and
+                    0 <= ny < self.height and
+                    self.tiles[ny][nx] == "B" and
                     (nx, ny) not in visited):
-                    
+
                     visited.add((nx, ny))
                     queue.append((nx, ny))
-                    
+
         block_width = max_x - min_x + 1
         block_height = max_y - min_y + 1
-        
+
         return block_width, block_height, (min_x, min_y)
 
     def draw(self, screen):
         visited_buildings = set()
-        
+
         # PASS 1: DIBUJAR SUELO
         street_image_to_use = self.street_images.get("patron_base")
-        
+
         for y in range(self.height):
             for x in range(self.width):
                 tile_type = self.tiles[y][x]
-                
+
                 if tile_type == "C":
                     if street_image_to_use:
-                        screen.blit(street_image_to_use, (x * TILE_SIZE, y * TILE_SIZE)) 
+                        screen.blit(street_image_to_use, (x * TILE_SIZE, y * TILE_SIZE))
                     else:
-                        color = TILE_COLORS.get(tile_type, (100, 100, 100)) 
+                        color = TILE_COLORS.get(tile_type, (100, 100, 100))
                         rect = pygame.Rect(x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE)
                         pygame.draw.rect(screen, color, rect)
-                
+
                 elif tile_type == "P":
                     if self.grass_image:
                         screen.blit(self.grass_image, (x * TILE_SIZE, y * TILE_SIZE))
                     else:
-                        color = TILE_COLORS.get(tile_type, (50, 200, 50)) 
+                        color = TILE_COLORS.get(tile_type, (50, 200, 50))
                         rect = pygame.Rect(x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE)
                         pygame.draw.rect(screen, color, rect)
-                
+
         # PASS 2: DIBUJAR EDIFICIOS
         for y in range(self.height):
             for x in range(self.width):
                 tile_type = self.tiles[y][x]
-                
+
                 if tile_type == "B" and (x, y) not in visited_buildings:
                     block_width, block_height, (start_x, start_y) = self.get_building_size(x, y, visited_buildings)
-                    
+
                     if block_width > 0 and block_height > 0:
                         image = self.building_images.get((block_width, block_height))
-                        
+
                         if image:
                             scaled_image = pygame.transform.scale(image, (block_width * TILE_SIZE, block_height * TILE_SIZE))
                             screen.blit(scaled_image, (start_x * TILE_SIZE, start_y * TILE_SIZE))
                         else:
-                            rect = pygame.Rect(start_x * TILE_SIZE, start_y * TILE_SIZE, block_width * TILE_SIZE, block_height * TILE_SIZE)
+                            rect = pygame.Rect(start_x * TILE_SIZE, start_y * TILE_SIZE,
+                                               block_width * TILE_SIZE, block_height * TILE_SIZE)
                             pygame.draw.rect(screen, TILE_COLORS.get("B", (50, 50, 50)), rect, 0)
-                            
+
+    # ---------- DEBUG VISUAL: RUTA IA ----------
+    def draw_ai_path(self, screen, path, color=(0, 255, 255)):
+        """
+        Dibuja la ruta planificada de la IA sobre el mapa.
+        `path` debe ser una lista de (x, y) en coordenadas de tiles.
+
+        - Dibuja:
+          * una línea que conecta todos los nodos
+          * pequeños círculos en cada nodo
+          * un nodo final resaltado
+        """
+        if not path or len(path) == 0:
+            return
+
+        # Convertir tiles a píxeles (centro del tile)
+        points = []
+        for (tx, ty) in path:
+            if 0 <= tx < self.width and 0 <= ty < self.height:
+                cx = tx * TILE_SIZE + TILE_SIZE // 2
+                cy = ty * TILE_SIZE + TILE_SIZE // 2
+                points.append((cx, cy))
+
+        if len(points) < 2:
+            # si solo hay un punto, dibujamos solo el nodo
+            cx, cy = points[0]
+            pygame.draw.circle(screen, color, (cx, cy), 6, 2)
+            return
+
+        # Línea principal
+        pygame.draw.lines(screen, color, False, points, 3)
+
+        # Nodos intermedios
+        for px, py in points:
+            pygame.draw.circle(screen, color, (px, py), 4, 1)
+
+        # Inicio (cerca de la IA) – color distinto
+        start_x, start_y = points[0]
+        pygame.draw.circle(screen, (0, 200, 0), (start_x, start_y), 6, 2)
+
+        # Destino – resaltado en otro color
+        end_x, end_y = points[-1]
+        pygame.draw.circle(screen, (255, 200, 0), (end_x, end_y), 6, 2)
+
     def is_walkable(self, x, y):
         """Verifica si una coordenada es un tile transitable."""
         if not (0 <= x < self.width and 0 <= y < self.height):
             return False
         tile_type = self.tiles[y][x]
         return tile_type != "B"
-       
+
     def surface_weight_at(self, x, y):
         """Retorna el 'surface_weight' del tipo de tile en (x, y)."""
         if not (0 <= x < self.width and 0 <= y < self.height):
             return 1.0
 
         tile_type = self.tiles[y][x]
-        
+
         legend = self.map_data.get('legend', {})
         weight = legend.get(tile_type, {}).get('surface_weight', 1.0)
         return weight
@@ -117,17 +162,17 @@ class World:
     def get_building_edges(self):
         """Retorna todas las posiciones adyacentes a edificios"""
         edges = set()
-        
+
         for y in range(self.height):
             for x in range(self.width):
                 if self.tiles[y][x] == "B":
                     for dx, dy in [(0, 1), (0, -1), (1, 0), (-1, 0)]:
                         nx, ny = x + dx, y + dy
-                        if (0 <= nx < self.width and 0 <= ny < self.height and 
-                            self.tiles[ny][nx] != "B" and 
+                        if (0 <= nx < self.width and 0 <= ny < self.height and
+                            self.tiles[ny][nx] != "B" and
                             self.tiles[ny][nx] != "P"):
                             edges.add((nx, ny))
-        
+
         return list(edges)
 
     def get_street_positions(self):

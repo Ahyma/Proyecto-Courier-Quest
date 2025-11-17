@@ -15,12 +15,15 @@ class HUD:
     CARD_PAD = 10
     CARD_BG = (255, 255, 255, 12)
 
-    def __init__(self, rect_area, screen_height, tile_size):
+    def __init__(self, rect_area, screen_height, tile_size, ai_difficulty=None):
         self.rect = rect_area
         self.screen_height = screen_height
         self.tile_size = tile_size
 
-        # Colores
+        # Dificultad IA (Enum o string)
+        self.ai_difficulty = ai_difficulty
+
+        # Colores base
         self.bg = (20, 20, 20)
         self.tx = (255, 255, 255)
         self.hl = (255, 215, 0)
@@ -29,6 +32,12 @@ class HUD:
         self.hint = (200, 200, 255)
         self.sortc = (180, 230, 180)
         self.subtx = (180, 180, 180)
+
+        # Colores diferenciados por agente
+        # Jugador humano
+        self.player_col = (180, 220, 255)
+        # IA (CPU)
+        self.ai_col = (255, 200, 150)
 
         # Fuentes
         self.f_title = self._font(28)
@@ -200,6 +209,36 @@ class HUD:
 
         return card_rect.bottom
 
+    # --------- Dificultad IA: label y color ---------
+    def _difficulty_label_and_color(self):
+        """
+        Devuelve (texto_label, color) para la dificultad de la IA.
+        Soporta tanto Enum AIDifficulty como strings.
+        """
+        if self.ai_difficulty is None:
+            return "Sin IA", self.subtx
+
+        # Intentar extraer el nombre del Enum (AIDifficulty.EASY -> "EASY")
+        name = getattr(self.ai_difficulty, "name", None)
+        if not name:
+            raw = str(self.ai_difficulty)
+            # Por si viene como "AIDifficulty.EASY" o similar
+            if "." in raw:
+                name = raw.split(".")[-1]
+            else:
+                name = raw
+
+        up = name.upper()
+
+        if up in ("EASY", "FACIL", "FÁCIL"):
+            return "FÁCIL", (120, 220, 120)
+        elif up in ("MEDIUM", "MEDIO"):
+            return "MEDIO", (240, 200, 120)
+        elif up in ("HARD", "DIFICIL", "DIFÍCIL"):
+            return "DIFÍCIL", (255, 140, 140)
+        else:
+            return name, self.subtx
+
     def draw(self, screen, courier, weather_condition, speed_multiplier,
              remaining_time=0, goal_income=0, near_pickup=False, near_dropoff=False,
              current_game_time=None, ai_courier=None):
@@ -236,9 +275,9 @@ class HUD:
         )
         y += self.SEC_GAP + self._div(screen, y)
 
-        # --- Repartidor ---
+        # --- Repartidor (jugador humano) ---
         y += self.SEC_GAP
-        y += self._blit(screen, "--- Repartidor ---", self.fs, self.tx, x, y)
+        y += self._blit(screen, "--- Repartidor (Jugador) ---", self.fs, self.player_col, x, y)
         y += self.VR_GAP
         y += self._blit(screen, f"Posición: ({courier.x}, {courier.y})", self.fs, self.tx, x, y)
         delivered = getattr(courier, "packages_delivered", getattr(courier, "delivered_count", 0))
@@ -274,7 +313,20 @@ class HUD:
         # --- IA (CPU) status (opcional) ---
         if ai_courier is not None:
             y += self.SEC_GAP
-            y += self._blit(screen, "--- IA (CPU) ---", self.fs, self.tx, x, y)
+            # Encabezado IA con color propio
+            y += self._blit(screen, "--- IA (CPU) ---", self.fs, self.ai_col, x, y)
+            y += self.VR_GAP
+
+            # Línea de dificultad IA
+            diff_label, diff_col = self._difficulty_label_and_color()
+            y += self._blit(
+                screen,
+                f"Dificultad IA: {diff_label}",
+                self.fs,
+                diff_col,
+                x,
+                y
+            )
             y += self.VR_GAP
 
             # Posición de la IA
