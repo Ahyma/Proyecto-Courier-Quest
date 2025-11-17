@@ -77,13 +77,14 @@ class AICourier(Courier):
         * Usa el pathfinding (find_path) basado en el grafo del mapa y el clima.
         * Replanifica si cambia el clima o la estamina está muy baja.
 
-    Nota importante:
-        Hereda de Courier, por lo que su velocidad ya integra Mpeso:
-            Mpeso = max(0.8, 1 - 0.03 * peso_total)
-        usando el peso actual del inventario.
+    Notas importantes:
 
-        Además, la IA tiene su propia capacidad de carga: limitamos el peso total
-        en su inventario para que no acepte pedidos que la sobrepasen.
+    - Hereda de Courier, por lo que su velocidad ya integra Mpeso:
+          Mpeso = max(0.8, 1 - 0.03 * peso_total)
+      usando el peso actual del inventario.
+
+    - La IA tiene su propia capacidad de carga (max_weight_ia). No acepta pedidos
+      que no quepan en su inventario (por peso).
     """
 
     def __init__(self, start_x, start_y, image, difficulty: AIDifficulty, max_weight: int = 6):
@@ -91,7 +92,7 @@ class AICourier(Courier):
         self.difficulty = difficulty
 
         # Capacidad de carga específica de la IA:
-        # ajustamos max_weight del inventario sin tocar al jugador humano.
+        # Ajustamos max_weight del inventario sin tocar al jugador humano.
         if hasattr(self, "inventory"):
             self.inventory.max_weight = max_weight
         self.max_weight_ia = max_weight
@@ -159,7 +160,18 @@ class AICourier(Courier):
 
         # Si el job objetivo cambió de estado a algo no útil, limpiar objetivo
         if target_job:
+            # --- Caso 1: expiró o fue entregado/cancelado ---
             if target_job.state in ("expired", "delivered", "cancelled"):
+                self._target_job_id = None
+                self._target_stage = None
+                self._path = None
+                self._path_index = 0
+                self._target_time = 0.0
+                target_job = None
+
+            # --- Caso 2: el trabajo fue recogido por alguien MÁS (jugador humano) ---
+            # Solo consideramos "robado" si la IA todavía estaba yendo al pickup.
+            elif target_job.state == "picked_up" and self._target_stage == "to_pickup":
                 self._target_job_id = None
                 self._target_stage = None
                 self._path = None
@@ -209,7 +221,8 @@ class AICourier(Courier):
             if self._target_stage == "to_pickup":
                 dest = target_job.pickup_pos
             elif self._target_stage == "to_dropoff":
-                dest = target_job.dropoff_pos
+                # IMPORTANTE: usar una casilla caminable alrededor del dropoff
+                dest = self._dropoff_target_tile(target_job, game_world)
 
             if dest:
                 # Elegir movimiento dependiendo de la dificultad
@@ -378,6 +391,34 @@ class AICourier(Courier):
 
         # Fallback: comportamiento EASY si no hay ruta
         return self._decide_move_easy_greedy(dest, game_world, [(1, 0), (-1, 0), (0, 1), (0, -1)])
+
+    # ---------------- HELPER DROPOFF ----------------
+    def _dropoff_target_tile(self, job, game_world):
+        """
+        Devuelve una casilla caminable alrededor del dropoff para que la IA
+        no intente pararse dentro del edificio.
+
+        - Busca las 4 celdas ortogonales al punto de dropoff.
+        - Se queda con las que sean walkable.
+        - Elige la más cercana a la IA.
+        - Si no hay ninguna caminable, devuelve el propio dropoff_pos.
+        """
+        cx, cy = job.dropoff_pos
+        candidates = []
+        for dx, dy in [(1, 0), (-1, 0), (0, 1), (0, -1)]:
+            nx, ny = cx + dx, cy + dy
+            if game_world.is_walkable(nx, ny):
+                candidates.append((nx, ny))
+
+        if not candidates:
+            return job.dropoff_pos
+
+        # Elegir la casilla caminable más cercana a la IA
+        best = min(
+            candidates,
+            key=lambda p: abs(p[0] - self.x) + abs(p[1] - self.y)
+        )
+        return best
 
     # ---------------- MEDIUM ----------------
     def _select_move_medium(self, target_job, game_world, weather_manager,
