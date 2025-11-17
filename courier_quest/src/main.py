@@ -56,7 +56,7 @@ IMAGES_DIR = os.path.join(BASE_DIR, "images")
 
 
 # ==================== DIFICULTAD / IA ====================
-
+# Dividir en clases aparte
 class AIDifficulty(Enum):
     EASY = 1
     MEDIUM = 2
