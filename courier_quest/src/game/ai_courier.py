@@ -1,4 +1,13 @@
 # game/ai_courier.py
+"""
+import random es para decisiones aleatorias. Se usa para la IA EASY y para desempates en la IA HARD
+import time es para medir el tiempo de ejecución de update() y análisis técnico
+import heapq es para la cola de prioridad en la selección de jobs de la IA HARD
+from enum import Enum es para definir las dificultades de la IA
+from collections import deque  es para mantener un historial de posiciones recientes (usado en IA MEDIUM)
+from game.courier import Courier es la clase base Courier de la que hereda AICourier
+from game.pathfinding import find_path es la función A* usada en la IA HARD
+"""
 import random
 import time
 import heapq
@@ -22,38 +31,54 @@ class AICourier(Courier):
     IA para Courier Quest.
 
     - EASY:
-        * Camina de forma sencilla (random walk ligero) y se mueve de forma voraz
-          hacia el pickup o dropoff del pedido actual.
+        -Camina de forma sencilla (random walk ligero) y se mueve de forma voraz
+          hacia el pickup o dropoff del pedido actual
+        -Si no tiene pedido, camina al azar  
 
     - MEDIUM:
-        * Usa un lookahead de 2–3 movimientos para escoger el mejor paso
-          según una función de puntuación con parámetros α, β, γ, δ, ε.
+        -Usa un lookahead de 2–3 movimientos para escoger el mejor paso
+          según una función de puntuación con parámetros α, β, γ, δ, ε
+        -Reevalúa su pedido actual cada cierto tiempo, cambiando si hay uno
+          claramente mejor según la misma función de puntuación
 
     - HARD:
-        * Usa A* para planear rutas completas hacia pickup/dropoff.
-        * Replanifica (A dinámico) cuando cambia el clima o el objetivo.
-        * Selecciona trabajos usando una cola de prioridad y una heurística
-          tipo TSP aproximado (considera la posible siguiente entrega).
+        -Usa A* para planear rutas completas hacia pickup/dropoff
+        -Replanifica (A dinámico) cuando cambia el clima o el objetivo
+        -Selecciona trabajos usando una cola de prioridad y una heurística
+          tipo TSP aproximado (considera la posible siguiente entrega)
 
     Además:
-        - Hereda de Courier, por lo que la velocidad ya integra Mpeso.
-        - Limita su capacidad de carga para que no acepte trabajos imposibles.
+        -Hereda de Courier, por lo que la velocidad ya integra Mpeso y clima
+        -Limita su capacidad de carga para que no acepte trabajos imposibles de cumplir
     """
 
+    """
+    AICourier constructor
+
+    Parameters:
+        start_x (int): Posición inicial X
+        start_y (int): Posición inicial Y
+        image (Surface): Imagen del courier
+        difficulty (AIDifficulty): Dificultad de la IA
+        max_weight (int): Capacidad de carga máxima de la IA
+
+    Returns:
+        None
+    """
     def __init__(self, start_x, start_y, image,
                  difficulty: AIDifficulty, max_weight: int = 6):
         super().__init__(start_x=start_x, start_y=start_y, image=image)
         self.difficulty = difficulty
 
-        # Capacidad de carga específica de la IA
+        """Capacidad de carga específica de la IA"""
         if hasattr(self, "inventory"):
             self.inventory.max_weight = max_weight
         self.max_weight_ia = max_weight
 
-        # Cooldown entre decisiones de movimiento
+        """Cooldown entre decisiones de movimiento"""
         self.move_timer = 0.0
 
-        # Estado del objetivo actual
+        """Estado del objetivo actual"""
         self._target_job_id = None        # id del Job objetivo
         self._target_stage = None         # "to_pickup" | "to_dropoff"
         self._target_time = 0.0           # tiempo persiguiendo el mismo job
@@ -82,6 +107,11 @@ class AICourier(Courier):
 
     # ---------- DEBUG / INSPECCIÓN ----------
 
+    """
+    Devuelve una copia de la ruta planificada actual (solo IA HARD)
+    Returns:
+        list: Copia de la ruta planificada actual
+    """
     def get_debug_path(self):
         """
         Devuelve una copia de la ruta planificada actual (solo IA HARD).
@@ -89,11 +119,13 @@ class AICourier(Courier):
         return list(self._path) if self._path else []
 
     # ---------- UTILIDADES INTERNAS ----------
-
+    """
+    Tiempo entre decisiones de movimiento según dificultad
+    Returns:
+        float: Tiempo entre decisiones de movimiento según dificultad
+    """
     def _cooldown_for_difficulty(self) -> float:
-        """
-        Tiempo entre decisiones de movimiento según dificultad.
-        """
+        """Tiempo entre decisiones de movimiento según dificultad"""
         if self.difficulty == AIDifficulty.EASY:
             return 0.35
         if self.difficulty == AIDifficulty.MEDIUM:
@@ -101,7 +133,13 @@ class AICourier(Courier):
         return 0.16  # HARD
 
     # ---------- JOB SELECTION / COLA DE PRIORIDAD ----------
-
+    """
+    Método de evaluación de job para IA MEDIA
+    Parameters:
+        job: job a evaluarReturns:
+    Returns:
+        float: Puntuación del job según heurística MEDIA
+    """
     def _evaluate_job_score_medium(self, job, game_world, weather_manager,
                                    current_game_time: float) -> float:
         """
@@ -113,30 +151,32 @@ class AICourier(Courier):
                     + δ * prioridad
                     - ε * peso_inventario
         """
-        # Parámetros (ajustables)
+        """Parámetros (ajustables)"""
         alpha = 1.1   # importancia del pago
         beta = 0.8    # castigo por distancia
         gamma = 0.4   # castigo por estamina
         delta = 0.3   # premio por prioridad alta
         epsilon = 0.2 # castigo por ir muy cargado
 
-        # Distancias Manhattan aproximadas
+        """Distancias Manhattan aproximadas"""
         dist_to_pickup = abs(self.x - job.pickup_pos[0]) + abs(self.y - job.pickup_pos[1])
         dist_pickup_to_drop = abs(job.pickup_pos[0] - job.dropoff_pos[0]) + abs(job.pickup_pos[1] - job.dropoff_pos[1])
         total_dist = dist_to_pickup + dist_pickup_to_drop
 
         stamina_mult = weather_manager.get_stamina_cost_multiplier()
 
-        # Estamina actual integrada al coste efectivo:
-        # - stamina_ratio ≈ 1.0 si está llena
-        # - stamina_ratio ≈ 0.0 si está vacía
+        """ 
+        Estamina actual integrada al coste efectivo:
+         - stamina_ratio ≈ 1.0 si está llena
+         - stamina_ratio ≈ 0.0 si está vacía
+        """
         if self.max_stamina > 0:
             stamina_ratio = self.stamina / self.max_stamina
         else:
             stamina_ratio = 1.0
 
-        # Si la estamina es baja, el "costo efectivo" del job aumenta.
-        # Factor entre 1.0 (estamina llena) y 2.0 (estamina en 0).
+        """ Si la estamina es baja, el "costo efectivo" del job aumenta """
+        """ Factor entre 1.0 (estamina llena) y 2.0 (estamina en 0) """
         stamina_factor = 1.0 + (1.0 - stamina_ratio)
 
         est_cost = total_dist * stamina_mult * stamina_factor
@@ -152,7 +192,15 @@ class AICourier(Courier):
                 + delta * priority_value
                 - epsilon * weight_penalty)
         return score
-#===================================================================================
+
+    """
+    Método de evaluación TSP-like para IA HARD
+    Parameters:
+        job: job a evaluar
+        candidates (list): lista de jobs candidatos para el "siguiente job"
+    Returns:
+        float: Puntuación TSP-like del job según heurística HARD
+    """
     def _tsp_like_score_for_job(self, job, candidates: list) -> float:
         """
         IA DIFÍCIL: estima el valor de hacer este job y luego otro (TSP aprox).
@@ -162,7 +210,7 @@ class AICourier(Courier):
         lambda_dist = 0.8
         mu_dist = 0.6
 
-        # Distancia del primer job (desde posición actual)
+        """Distancia del primer job (desde posición actual)"""
         dist_to_pickup = abs(self.x - job.pickup_pos[0]) + abs(self.y - job.pickup_pos[1])
         dist_pickup_to_drop = (
             abs(job.pickup_pos[0] - job.dropoff_pos[0]) +
@@ -171,13 +219,13 @@ class AICourier(Courier):
         dist1 = dist_to_pickup + dist_pickup_to_drop
         value1 = job.payout - lambda_dist * dist1
 
-        # Mejor "segundo job" desde el dropoff del primero
+        """Mejor "segundo job" desde el dropoff del primero"""
         best_extra = 0.0
         for other in candidates:
             if other.id == job.id:
                 continue
 
-            # desde el dropoff de job hasta el pickup del otro
+            """desde el dropoff de job hasta el pickup del otro"""
             dist_drop_to_next_pick = (
                 abs(job.dropoff_pos[0] - other.pickup_pos[0]) +
                 abs(job.dropoff_pos[1] - other.pickup_pos[1])
@@ -188,12 +236,23 @@ class AICourier(Courier):
             )
             dist_next = dist_drop_to_next_pick + dist_pick_next_drop
 
+            """Valor del segundo job. Si es negativo, no lo consideramos.""" 
             extra = other.payout - mu_dist * dist_next
             if extra > best_extra:
                 best_extra = extra
 
         return value1 + best_extra
 
+    """
+    Método de selección del siguiente job según dificultad
+    Parameters:
+        available_jobs (list): lista de jobs disponibles
+        game_world: instancia del mundo del juego
+        weather_manager: instancia del gestor de clima
+        current_game_time (float): tiempo actual del juego
+    Returns:
+        job: job seleccionado o None si no hay válido
+    """
     def _select_target_job(self, available_jobs, game_world, weather_manager,
                            current_game_time: float):
         """
@@ -206,13 +265,13 @@ class AICourier(Courier):
         if not available_jobs:
             return None
 
-        # EASY: random
+        """EASY: random"""
         if self.difficulty == AIDifficulty.EASY:
             chosen = random.choice(available_jobs)
             self.analysis_stats["job_selections"] += 1
             return chosen
 
-        # MEDIUM: heurística simple
+        """MEDIUM: heurística simple"""
         if self.difficulty == AIDifficulty.MEDIUM:
             best_job = None
             best_score = float("-inf")
@@ -227,7 +286,7 @@ class AICourier(Courier):
                 self.analysis_stats["job_selections"] += 1
             return best_job
 
-        # HARD: usar cola de prioridad con score TSP-like
+        """ HARD: usar cola de prioridad con score TSP-like """
         heap = []
         for j in available_jobs:
             if not self.inventory.can_add_job(j):
@@ -245,6 +304,18 @@ class AICourier(Courier):
 
     # ---------- LÓGICA PRINCIPAL DE ACTUALIZACIÓN ----------
 
+    """
+    Método de actualización por tick de la IA
+
+    Parameters:
+        delta_time (float): Tiempo transcurrido desde el último tick
+        game_world: Instancia del mundo del juego
+        weather_manager: Instancia del gestor de clima
+        jobs_manager: Instancia del gestor de jobs (opcional)
+        current_game_time (float): Tiempo actual del juego (opcional)
+    Returns:
+        None
+    """
     def update(self, delta_time, game_world, weather_manager,
                jobs_manager=None, current_game_time: float = 0.0):
         """
@@ -253,7 +324,7 @@ class AICourier(Courier):
         """
         start_time = time.perf_counter()
 
-        # Reducir cooldown; si aún no toca moverse, salir
+        """Reducir cooldown; si aún no toca moverse, salir"""
         self.move_timer -= delta_time
         if self.move_timer > 0:
             end_time = time.perf_counter()
@@ -261,12 +332,19 @@ class AICourier(Courier):
             self.analysis_stats["time_spent"] += (end_time - start_time)
             return
 
-        # Resetear cooldown según dificultad
+        """Resetear cooldown según dificultad"""
         self.move_timer = self._cooldown_for_difficulty()
 
         # ----------------------------
         # 1) Resolver objetivo actual
         # ----------------------------
+        """
+        Resolver el objetivo actual si existe
+        - Acumular tiempo persiguiéndolo
+        - Si cambia de estado (expired, delivered, cancelled), descartarlo
+        - Si pasa demasiado tiempo sin lograrlo, soltarlo (timeout genérico)
+        - Si no hay objetivo, reiniciar contador
+        """
         target_job = None
         if self._target_job_id and jobs_manager:
             for j in jobs_manager.all_jobs:
@@ -274,10 +352,10 @@ class AICourier(Courier):
                     target_job = j
                     break
 
-        # Si hay objetivo actual, acumular tiempo siguiéndolo
+        """Si hay objetivo actual, acumular tiempo siguiéndolo"""
         if target_job is not None:
             self._target_time += delta_time
-            # Timeout genérico: si pasa demasiado tiempo sin lograrlo, soltarlo
+            """Timeout genérico: si pasa demasiado tiempo sin lograrlo, soltarlo"""
             if self._target_time > 15.0:
                 self._target_job_id = None
                 self._target_stage = None
@@ -286,10 +364,10 @@ class AICourier(Courier):
                 self._target_time = 0.0
                 target_job = None
         else:
-            # Sin objetivo, reiniciar contador
+            """ Sin objetivo, reiniciar contador"""
             self._target_time = 0.0
 
-        # Si el job objetivo cambió de estado, descartarlo
+        """Si el job objetivo cambió de estado, descartarlo"""
         if target_job and target_job.state in ("expired", "delivered", "cancelled"):
             self._target_job_id = None
             self._target_stage = None
@@ -298,9 +376,14 @@ class AICourier(Courier):
             self._target_time = 0.0
             target_job = None
 
-        # ----------------------------
+        # ----------------------------------
         # 2) Elegir nuevo objetivo si no hay
-        # ----------------------------
+        # ----------------------------------
+        """
+        Elegir un nuevo objetivo si no hay uno actual
+        - Filtrar jobs disponibles
+        - Según dificultad, usar el método de selección adecuado
+        """
         if not target_job and jobs_manager:
             available = [j for j in jobs_manager.available_jobs
                          if j.state == "available"]
@@ -317,16 +400,27 @@ class AICourier(Courier):
                     self._target_job_id = target_job.id
                     self._target_stage = "to_pickup"
                     self._target_time = 0.0
-                    # Al cambiar de objetivo, invalidar ruta previa (HARD)
+                    """Al cambiar de objetivo, invalidar ruta previa (HARD)"""
                     self._path = None
                     self._path_index = 0
-                    #Resetear timer de reevaluación (solo aplica a MEDIUM)
+                    """Resetear timer de reevaluación (solo aplica a MEDIUM)"""
                     if self.difficulty == AIDifficulty.MEDIUM:
                         self._job_reeval_cooldown = 5.0  # por ejemplo, cada 5 segundos
 
-        # ----------------------------
+        # ----------------------------------
         # 3) Recoger / entregar si procede
-        # ----------------------------
+        # ----------------------------------
+        """
+        Intentar recoger o entregar si estamos en la posición adecuada
+        Recoger:
+          - Si estamos en pickup y el job es el objetivo actual,
+            intentar recogerlo (jobs_manager.try_pickup_job)
+          - Si se recoge con éxito, cambiar etapa a "to_dropoff"
+            y limpiar ruta para recalcular hacia dropoff
+        Entregar:
+          - Si estamos en dropoff y llevamos un job, intentar entregarlo (jobs_manager.try_deliver_job)
+          - Si se entrega con éxito, actualizar ingresos y reputación, y limpiar objetivo actual
+        """
         if target_job and jobs_manager:
             # Recoger
             if self._target_stage == "to_pickup":
@@ -340,7 +434,7 @@ class AICourier(Courier):
                     if success:
                         self._target_stage = "to_dropoff"
                         self._target_time = 0.0
-                        # limpiar ruta para recalcular hacia dropoff
+                        """limpiar ruta para recalcular hacia dropoff"""
                         self._path = None
                         self._path_index = 0
 
@@ -352,7 +446,7 @@ class AICourier(Courier):
                     current_game_time
                 )
                 if delivered_job:
-                    # 💰 Ingresos y reputación de la IA
+                    #Ingresos y reputación de la IA
                     mult = self.get_reputation_multiplier()
                     base_payout = delivered_job.payout * mult
                     self.income += base_payout
@@ -360,7 +454,7 @@ class AICourier(Courier):
                     rep_delta = delivered_job.calculate_reputation_change()
                     self.update_reputation(rep_delta)
 
-                    # pedido terminado; limpiar target
+                    #pedido terminado; limpiar target
                     self._target_job_id = None
                     self._target_stage = None
                     self._path = None
@@ -411,8 +505,8 @@ class AICourier(Courier):
                             best_score = s
                             best_job = j
 
-                    # Cambiar de job SOLO si el nuevo es claramente mejor
-                    # (evita que esté cambiando a cada rato)
+                    """Cambiar de job SOLO si el nuevo es claramente mejor
+                    (evita que esté cambiando a cada rato)"""
                     if best_job is not None and best_job.id != target_job.id:
                         # Umbral de mejora mínima
                         if best_score > current_score + 5.0:
@@ -431,6 +525,34 @@ class AICourier(Courier):
         # ----------------------------
         # 4) Decidir movimiento
         # ----------------------------
+        """
+        Decidir el movimiento a realizar según dificultad
+        - EASY: voraz hacia pickup/dropoff o random walk si no hay objetivo
+        - MEDIUM: lookahead de 3 pasos con heurística α..ε
+        - HARD: A* dinámico hacia pickup/dropoff, replanificando si cambia clima o objetivo
+        - Actualizar posición y estamina según move()
+
+        Parameters:
+            delta_time (float): Tiempo transcurrido desde el último tick
+            game_world: Instancia del mundo del juego
+            weather_manager: Instancia del gestor de clima
+            jobs_manager: Instancia del gestor de jobs (opcional)
+            current_game_time (float): Tiempo actual del juego (opcional)
+        Returns:
+            None
+
+        Primero definimos los vecinos posibles (4 direcciones)
+        Según la dificultad, llamamos al método de selección adecuado:
+        - EASY: _select_move_easy
+        - MEDIUM: _select_move_medium
+        - HARD: _decide_move_hard
+        Si se obtiene un movimiento válido, calculamos la nueva posición
+        Verificamos si la nueva posición es caminable
+        Si es caminable, calculamos los modificadores de coste de estamina y velocidad
+        Guardamos la posición previa antes de movernos
+        Llamamos a self.move() con los parámetros adecuados
+        Actualizamos la última posición y el historial reciente
+        """
         neighbors = [(-1, 0), (1, 0), (0, -1), (0, 1)]
         move = None
 
@@ -471,17 +593,51 @@ class AICourier(Courier):
                 self.last_pos = (prev_x, prev_y)
                 self.recent_positions.append((self.x, self.y))
 
+        """
+        este bloque mide el tiempo total de ejecución de update() y acumula estadísticas
+        """
         end_time = time.perf_counter()
         self.analysis_stats["frames"] += 1
         self.analysis_stats["time_spent"] += (end_time - start_time)
 
     # ---------- MOVIMIENTO EASY ----------
 
+    """
+    Parameters:
+        target_job: job objetivo actual o None
+        game_world: instancia del mundo del juego
+        neighbors (list): lista de vecinos posibles (dx, dy)
+    Returns:
+        tuple: movimiento seleccionado (dx, dy) o None si no hay válido
+    """
     def _select_move_easy(self, target_job, game_world, neighbors):
         """
         IA EASY:
           - Si no tiene objetivo, camina al azar (priorizando tiles caminables).
           - Si tiene objetivo, se mueve de forma voraz hacia el pickup/dropoff.
+        
+        Primero obtenemos la última posición visitada
+        Luego, si no hay objetivo, realizamos un random walk
+        1. Random walk:
+            - Mezclamos los vecinos para aleatoriedad
+            - Iteramos sobre los vecinos y verificamos si son caminables
+            - Evitamos volver al tile anterior si hay más opciones
+            - Si encontramos un movimiento válido, lo devolvemos
+            - Si no hay más opción, permitimos volver atrás
+            - Si no hay movimientos válidos, devolvemos None
+
+        2. Movimiento:
+            - Determinamos el objetivo según la etapa (pickup o dropoff)
+            - Inicializamos best_move y best_dist
+            - Mezclamos los vecinos para aleatoriedad
+            - Iteramos sobre los vecinos y verificamos si son caminables
+            - Calculamos la distancia Manhattan al objetivo
+            - Penalizamos ligeramente volver al tile anterior
+            - Si la distancia efectiva es mejor que la mejor encontrada,
+              actualizamos best_dist y best_move
+            - Si no encontramos ningún movimiento que mejore la distancia,
+              llamamos recursivamente a _select_move_easy con None para fallback
+            - Devolvemos el mejor movimiento encontrado
         """
         last_pos = self.last_pos
 
@@ -536,6 +692,18 @@ class AICourier(Courier):
 
     # ---------- MOVIMIENTO MEDIUM (LOOKAHEAD) ----------
 
+    """
+    Parameters:
+        target_job: job objetivo actual o None
+        game_world: instancia del mundo del juego
+        weather_manager: instancia del gestor de clima
+        neighbors (list): lista de vecinos posibles (dx, dy)
+        depth (int): profundidad del lookahead
+        current_game_time (float): tiempo actual del juego
+
+    Returns: 
+        tuple: movimiento seleccionado (dx, dy) o None si no hay válido
+    """
     def _select_move_medium(self, target_job, game_world, weather_manager,
                             neighbors, depth: int = 3,
                             current_game_time: float = 0.0):
@@ -550,7 +718,7 @@ class AICourier(Courier):
                     - ε * weight_penalty
 
         Es un "minimax" simplificado con un único agente maximizador
-        (no modelamos oponente, solo buscamos el máximo score futuro).
+        (no modelamos oponente, solo buscamos el máximo score futuro)
         """
         if not target_job:
             return self._select_move_easy(None, game_world, neighbors)
@@ -571,6 +739,20 @@ class AICourier(Courier):
         else:
             goal_pos = target_job.pickup_pos
 
+        """
+        Heurística para evaluar nodos hoja del lookahead
+        Parameters:
+            x (int): posición X del nodo
+            y (int): posición Y del nodo
+            stamina_penalty_accum (float): coste acumulado de estamina hasta este nodo
+        Returns:
+            float: puntuación heurística del nodo
+        
+        Primero calculamos la distancia Manhattan al objetivo
+        Luego verificamos si hemos alcanzado el objetivo
+        Si hemos alcanzado el objetivo, el pago esperado es el payout del job
+        Finalmente, calculamos la puntuación según la fórmula dada
+        """
         def heuristic(x, y, stamina_penalty_accum: float) -> float:
             dist_goal = abs(x - goal_pos[0]) + abs(y - goal_pos[1])
             reached = (x, y) == goal_pos
@@ -589,6 +771,27 @@ class AICourier(Courier):
 
         local_nodes = 0
 
+        """
+        Búsqueda DFS con lookahead
+        Parameters:
+            x (int): posición X actual
+            y (int): posición Y actual
+            depth_left (int): profundidad restante del lookahead
+            stamina_penalty_accum (float): coste acumulado de estamina hasta este nodo
+        Returns:
+            float: mejor puntuación alcanzable desde este nodo
+        
+        Primero incrementamos el contador de nodos locales
+        Si la profundidad restante es 0, devolvemos la puntuación heurística
+        Inicializamos best_score y any_move
+        Si no hay movimientos posibles, devolvemos la puntuación heurística
+        Iteramos sobre los vecinos posibles
+            - Verificamos si el vecino es caminable
+            - Calculamos el coste de movimiento considerando clima y superficie
+            - Llamamos recursivamente a dfs para el vecino
+            - Actualizamos best_score si encontramos una mejor puntuación
+        Luego, si no hubo movimientos posibles, devolvemos la puntuación heurística, o sea, devolvemos la mejor puntuación encontrada
+        """
         def dfs(x, y, depth_left: int, stamina_penalty_accum: float) -> float:
             nonlocal local_nodes
             local_nodes += 1
@@ -651,7 +854,31 @@ class AICourier(Courier):
         return best_move
 
     # ---------- MOVIMIENTO HARD (A* DINÁMICO) ----------
+    """
+    Parameters:
+        target_job: job objetivo actual o None
+        game_world: instancia del mundo del juego   
+        weather_manager: instancia del gestor de clima
+        neighbors (list): lista de vecinos posibles (dx, dy)
+    Returns:
+        tuple: movimiento seleccionado (dx, dy) o None si no hay válido
 
+    Primero verificamos si hay un objetivo; si no, actuamos como MEDIUM
+    Luego determinamos el destino según la etapa (pickup o dropoff)
+    Obtenemos la condición climática actual
+    Verificamos si necesitamos replanificar la ruta
+    Si necesitamos replanificar:
+        - Incrementamos el contador de replanificaciones
+        - Llamamos a find_path para obtener una nueva ruta
+        - Actualizamos la ruta, el índice y el clima planificado
+    Si no hay una ruta válida, actuamos como MEDIUM hacia el objetivo
+    Si hemos llegado al final de la ruta, devolvemos None
+    Obtenemos la siguiente posición en la ruta
+    Calculamos el movimiento (dx, dy)
+    Si el siguiente paso no es transitable, invalidamos la ruta y actuamos como MEDIUM
+    Incrementamos el índice de la ruta
+    Devolvemos el movimiento calculado
+    """
     def _decide_move_hard(self, target_job, game_world, weather_manager, neighbors):
         """
         IA HARD:
@@ -710,6 +937,7 @@ class AICourier(Courier):
 
     # ---------- ANÁLISIS TÉCNICO ----------
 
+    """ Método para obtener estadísticas de análisis técnico de la IA """
     def get_debug_stats(self) -> dict:
         """
         Devuelve métricas para análisis técnico de la IA:
