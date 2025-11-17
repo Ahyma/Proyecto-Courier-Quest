@@ -1,8 +1,22 @@
 # courier_quest/src/game/weather.py
+
+"""
+import time: para manejar tiempos y duraciones
+import random: para generar números aleatorios
+"""
 import time
 import random
 
-__all__ = ["WeatherManager"]  # export explícito del símbolo
+""" 
+Módulo de gestión del clima con ráfagas aleatorias y transiciones suaves
+
+Proporciona la clase WeatherManager que controla el estado climático actual,
+las transiciones entre condiciones y el cálculo del multiplicador de velocidad asociado
+
+Las condiciones climáticas afectan la velocidad de movimiento del courier, haciendo que
+moverse sobre el mapa sea más lento o más rápido según el clima actual
+"""
+__all__ = ["WeatherManager"]  # export explícito del símbolo WeatherManager
 
 # ------------------------------------------------------------------------------------
 # Multiplicadores de velocidad según condición climática
@@ -22,6 +36,11 @@ MULTS = {
 # ------------------------------------------------------------------------------------
 # Matriz de transición por defecto (si no viene una en weather.json)
 # ------------------------------------------------------------------------------------
+"""
+Este bloque es para definir la matriz de transición por defecto entre condiciones climáticas
+Cada clave es una condición actual, y su valor es un diccionario con las posibles condiciones siguientes y sus probabilidades asociadas
+Por ejemplo, desde "clear" hay un 60% de probabilidad de seguir "clear", 30% de pasar a "clouds" y 10% a "rain"
+"""
 DEFAULT_TRANSITION = {
     "clear":  {"clear": 0.6, "clouds": 0.3, "rain": 0.1},
     "clouds": {"clear": 0.3, "clouds": 0.5, "rain": 0.2},
@@ -50,11 +69,11 @@ class WeatherManager:
         self.burst_min, self.burst_max = burst_range
         self.transition_secs = float(transition_secs)
 
-        # control de tiempo
+        """control de tiempo"""
         self._t0 = time.time()
         self._set_new_burst()
 
-        # blending
+        """blending"""
         self._blend_from = MULTS.get(self.curr, 1.0)
         self._blend_to = self._blend_from
         self._blend_start = time.time()
@@ -66,7 +85,12 @@ class WeatherManager:
         self.burst_dur = random.randint(self.burst_min, self.burst_max)
 
     def _sample_next_condition(self):
-        """Escoge la siguiente condición según la matriz de transición."""
+        """Escoge la siguiente condición según la matriz de transición
+        
+        Primero obtiene la fila correspondiente a la condición actual
+        Luego, usa las probabilidades para seleccionar aleatoriamente la siguiente condición
+        Si no hay fila (condición desconocida), retorna una condición aleatoria
+        """
         row = self.transition.get(self.curr, {})
         if not row:
             return random.choice(list(MULTS.keys()))
@@ -86,7 +110,7 @@ class WeatherManager:
         """Actualiza el estado del clima, aplicando transición si corresponde."""
         now = time.time()
 
-        # ¿terminó la ráfaga actual? → iniciar transición
+        """¿terminó la ráfaga actual? -> iniciar transición"""
         if (now - self._t0) >= self.burst_dur and not self._blending:
             self.next = self._sample_next_condition()
             self._blend_from = MULTS.get(self.curr, 1.0)
@@ -94,7 +118,7 @@ class WeatherManager:
             self._blend_start = now
             self._blending = True
 
-        # Transición suave (interpolación lineal)
+        """Transición suave (interpolación lineal)"""
         if self._blending:
             t = (now - self._blend_start) / self.transition_secs
             if t >= 1.0:
