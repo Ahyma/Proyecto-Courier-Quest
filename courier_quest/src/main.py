@@ -675,9 +675,14 @@ def start_game(ai_difficulty: AIDifficulty, load_saved: bool = False):
 
     # Repartidor (imagen compartida humano + IA)
     try:
+        # Humano
         repartidor_path = os.path.join(IMAGES_DIR, "repartidor.png")
         repartidor_image = pygame.image.load(repartidor_path).convert_alpha()
         repartidor_image = pygame.transform.scale(repartidor_image, (TILE_SIZE, TILE_SIZE))
+        # IA
+        repartidorIA_path = os.path.join(IMAGES_DIR, "repartidorIA.png")
+        repartidorIA_image = pygame.image.load(repartidorIA_path).convert_alpha()
+        repartidorIA_image = pygame.transform.scale(repartidorIA_image, (TILE_SIZE, TILE_SIZE))
     except (pygame.error, FileNotFoundError) as e:
         print(f"[AVISO] No se pudo cargar la imagen del repartidor desde {repartidor_path}: {e}")
         print("        Se usará un fallback para el repartidor.")
@@ -696,7 +701,7 @@ def start_game(ai_difficulty: AIDifficulty, load_saved: bool = False):
     ai_courier = AICourier(
         start_x=map_tile_width - 1,
         start_y=map_tile_height - 1,
-        image=repartidor_image,
+        image=repartidorIA_image,
         difficulty=ai_difficulty,
         max_weight=6,
     )
