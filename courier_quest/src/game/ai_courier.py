@@ -61,6 +61,17 @@ class AICourier(Courier):
         # Timeout de objetivo: acumula cuánto tiempo lleva persiguiendo el mismo job
         self._target_time = 0.0
 
+    # ---------- MÉTODO DE DEBUG ----------
+    def get_debug_path(self):
+        """
+        Devuelve una copia de la ruta planificada actual (lista de (x, y)).
+
+        Se usa solo para visualización (modo debug). Si no hay ruta, devuelve [].
+        """
+        if not self._path:
+            return []
+        return list(self._path)
+
     def _cooldown_for_difficulty(self) -> float:
         if self.difficulty == AIDifficulty.EASY:
             return 0.6
