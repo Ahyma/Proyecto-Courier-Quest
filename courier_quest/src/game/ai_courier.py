@@ -67,6 +67,9 @@ class AICourier(Courier):
         self.last_pos = None
         self.recent_positions = deque(maxlen=6)
 
+        # Timer para reevaluar job en IA MEDIA
+        self._job_reeval_cooldown = 0.0
+
         # Estadísticas para análisis técnico
         self.analysis_stats = {
             "frames": 0,
@@ -317,6 +320,9 @@ class AICourier(Courier):
                     # Al cambiar de objetivo, invalidar ruta previa (HARD)
                     self._path = None
                     self._path_index = 0
+                    #Resetear timer de reevaluación (solo aplica a MEDIUM)
+                    if self.difficulty == AIDifficulty.MEDIUM:
+                        self._job_reeval_cooldown = 5.0  # por ejemplo, cada 5 segundos
 
         # ----------------------------
         # 3) Recoger / entregar si procede
@@ -361,6 +367,66 @@ class AICourier(Courier):
                     self._path_index = 0
                     self._target_time = 0.0
                     target_job = None
+
+        # ---------------------------------------------------------------
+        # 3.5) Reevaluar objetivo (solo para la IA MEDIA, yendo a pickup)
+        # ---------------------------------------------------------------
+        """
+        Solo aplica a IA MEDIA -> self.difficulty == AIDifficulty.MEDIUM
+        Solo si vamos a pickup -> no tiene sentido cambiar de job cargando uno
+        Usa la misma heurística _evaluate_job_score_medium
+        Comparamos best_score vs current_score + 5.0 para evitar cambios constantes por diferencias mínimas
+        No hay estructuras nuevas: solo un float (_job_reeval_cooldown) y variables locales
+        """
+        if (self.difficulty == AIDifficulty.MEDIUM
+                and target_job is not None
+                and jobs_manager is not None
+                and self._target_stage == "to_pickup"):
+            # Reducir cooldown
+            self._job_reeval_cooldown -= delta_time
+
+            if self._job_reeval_cooldown <= 0.0:
+                available = [j for j in jobs_manager.available_jobs
+                             if j.state == "available"]
+
+                if available:
+                    # Job actual sigue siendo válido: calcular su score
+                    current_score = self._evaluate_job_score_medium(
+                        target_job,
+                        game_world,
+                        weather_manager,
+                        current_game_time,
+                    )
+
+                    # Buscar el mejor job según la misma heurística
+                    best_job = None
+                    best_score = float("-inf")
+                    for j in available:
+                        if not self.inventory.can_add_job(j):
+                            continue
+                        s = self._evaluate_job_score_medium(
+                            j, game_world, weather_manager, current_game_time
+                        )
+                        if s > best_score:
+                            best_score = s
+                            best_job = j
+
+                    # Cambiar de job SOLO si el nuevo es claramente mejor
+                    # (evita que esté cambiando a cada rato)
+                    if best_job is not None and best_job.id != target_job.id:
+                        # Umbral de mejora mínima
+                        if best_score > current_score + 5.0:
+                            self._target_job_id = best_job.id
+                            self._target_stage = "to_pickup"
+                            self._target_time = 0.0
+                            target_job = best_job
+                            # Resetear ruta (HARD) y timer de reevaluación
+                            self._path = None
+                            self._path_index = 0
+
+                # Reiniciar el cooldown para la siguiente reevaluación
+                self._job_reeval_cooldown = 5.0
+
 
         # ----------------------------
         # 4) Decidir movimiento
