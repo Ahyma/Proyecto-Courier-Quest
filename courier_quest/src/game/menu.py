@@ -1,4 +1,9 @@
 # game/menu.py
+"""
+import pygame es necesario para el menú gráfico
+from game.ai_courier import AIDifficulty es necesario para manejar la dificultad de la IA
+from game.score_board import load_scores es necesario para cargar las puntuaciones guardadas
+""" 
 import pygame
 
 from game.ai_courier import AIDifficulty
@@ -18,6 +23,11 @@ class Menu:
       [Salir]
     """
 
+    """ 
+    Inicializa el menú con la pantalla dada
+    Parámetros:
+      - screen: la superficie de pygame donde se dibuja el menú
+    """ 
     def __init__(self, screen):
         self.screen = screen
         self.width, self.height = screen.get_size()
@@ -29,6 +39,9 @@ class Menu:
         self.buttons = []
         self._build_buttons()
 
+    """ 
+    Construye los botones del menú con sus posiciones y acciones
+    """ 
     def _build_buttons(self):
         center_x = self.width // 2
         start_y = self.height // 2 - 140
@@ -51,6 +64,10 @@ class Menu:
             rect = pygame.Rect(x, y, button_width, button_height)
             self.buttons.append({"rect": rect, "label": label, "action": action})
 
+    """ 
+    Se les pone @staticmethod porque no usan self
+    Convierte la dificultad de la IA a texto legible
+    """ 
     @staticmethod
     def _difficulty_to_text(diff: AIDifficulty) -> str:
         if diff == AIDifficulty.EASY:
@@ -68,7 +85,11 @@ class Menu:
         return AIDifficulty.EASY
 
     # ---------- PANTALLA DE PUNTUACIONES ----------
-
+    """ 
+    _format_timestamp: Convierte un timestamp ISO a un formato corto yyyy-mm-dd hh:mm
+    _scores_screen: Muestra la pantalla de puntuaciones y maneja la navegación
+    Devuelve True si el usuario cerró la ventana (QUIT), False si solo volvió al menú con ESC
+    """ 
     def _format_timestamp(self, ts: str) -> str:
         """Convierte el ISO a algo corto yyyy-mm-dd hh:mm. Si falla, devuelve el raw."""
         if not ts:
@@ -97,6 +118,10 @@ class Menu:
         offset = 0           # índice de inicio visible
         max_visible = 10     # cuántas filas mostrar a la vez
 
+        """ 
+        Bucle principal de la pantalla de puntuaciones
+        Maneja eventos de teclado para desplazarse y volver al menú
+        """ 
         running_scores = True
         while running_scores:
             for event in pygame.event.get():
@@ -211,6 +236,15 @@ class Menu:
         return False
 
     # ---------- LOOP PRINCIPAL DEL MENÚ ----------
+    """ 
+    show: Bucle del menú
+    Devuelve (action, difficulty)
+
+    Primero inicializa el reloj y variables
+    luego entra en un bucle donde maneja eventos:
+    - QUIT: devuelve "exit"
+    - Clic en botón: dependiendo del botón, cambia dificultad, entra a puntuaciones o devuelve la acción
+    """ 
 
     def show(self, current_difficulty: AIDifficulty):
         """
@@ -249,6 +283,14 @@ class Menu:
             self.screen.blit(title_surface, title_rect)
 
             # -------- ESTADO DEL MOUSE PARA HOVER / CLICK VISUAL --------
+            """ 
+            Primero obtiene la posición del mouse y si el botón izquierdo está presionado
+            Luego itera sobre los botones para dibujarlos:
+            - Determina el color base según el tipo de botón (rojo para salir, gris para otros)
+            - Cambia el color si está en hover o presionado
+            - Dibuja el rectángulo del botón
+            - Dibuja el texto del botón centrado
+            """ 
             mouse_pos = pygame.mouse.get_pos()
             mouse_pressed = pygame.mouse.get_pressed()[0]  # True si botón izquierdo está presionado
 

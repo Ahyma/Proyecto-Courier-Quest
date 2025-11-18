@@ -16,6 +16,26 @@ from game.game_loop import start_game
 # ==================== MAIN: MENÚ + PARTIDA ====================
 
 def main():
+    """
+    Función principal del programa.
+
+    Flujograma general:
+        1. Inicializa pygame y crea la ventana del menú
+        2. Instancia el menú principal (Menu)
+        3. Entra en un loop donde:
+            - Se muestra el menú
+            - Se recibe una acción ("new_game", "load_game", "show_scores", "exit")
+            - Se ejecuta la acción correspondiente
+        4. Si el usuario escoge "new_game" o "load_game":
+            - Se reinicia la ventana de pygame
+            - Se llama a start_game() con la dificultad seleccionada
+            - Al terminar la partida, se reconstruye la ventana y el menú
+        5. El programa finaliza al seleccionar "exit" o cerrar la ventana
+
+    Nota:
+        La ventana dentro del juego principal no es la misma que la del menú
+        Por eso se hace un pygame.display.quit() / init() antes de cada partida
+    """
     pygame.init()
     screen = pygame.display.set_mode((800, 600))
     pygame.display.set_caption("Courier Quest")

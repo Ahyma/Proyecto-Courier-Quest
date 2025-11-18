@@ -1,9 +1,30 @@
+"""
+import pygame es la biblioteca principal para el desarrollo del juego
+import sys y os son para manejo del sistema y rutas de archivos
+"""
 import pygame
 import sys
 import os
 
+"""from datetime import datetime es para manejar fechas y horas"""
 from datetime import datetime
 
+"""
+froma api.client import APIClient maneja las llamadas a la API externa
+from api.cache import APICache gestiona la caché de datos de la API
+from game.courier import Courier representa al repartidor jugador
+from game.world import World maneja el mundo del juego (mapa, edificios, calles)
+from game.constants import TILE_SIZE, PANEL_WIDTH importa constantes del juego
+from game.weather_manager import WeatherManager gestiona el clima dinámico
+from game.weather_visuals import WeatherVisuals maneja los efectos visuales del clima
+from game.save_game import save_slot, load_slot gestiona el guardado y carga de partidas
+from game.score_board import save_score guarda las puntuaciones finales
+from game.hud import HUD maneja la interfaz de usuario (HUD)
+from game.jobs_manager import JobsManager gestiona los pedidos del juego
+from game.reputation import ReputationSystem es para los deltas de reputación
+from game.notifications import NotificationsOverlay maneja el overlay de notificaciones
+from game.ai_courier import AICourier, AIDifficulty representa al repartidor IA y su dificultad
+"""
 from api.client import APIClient
 from api.cache import APICache
 from game.courier import Courier
@@ -41,6 +62,11 @@ def load_building_images():
 
     base_path = IMAGES_DIR
 
+    """
+    Aqui se itera sobre los tamaños y nombres de archivo definidos en image_names, intentando cargar cada imagen
+    Si la carga falla, se maneja la excepción y se asigna None como valor en el diccionario para ese tamaño de edificio
+    Esto permite que el juego continúe funcionando incluso si algunas imágenes no están disponibles
+    """
     for size, filename in image_names.items():
         image_path = os.path.join(base_path, filename)
         try:
@@ -63,6 +89,11 @@ def load_street_images():
     filename = "calle.png"
     image_path = os.path.join(base_path, filename)
 
+    """
+    aqui se intenta cargar la imagen de la calle
+    Si la carga falla, se maneja la excepción y se asigna None como valor en el diccionario para la imagen de la calle
+    Esto permite que el juego continúe funcionando incluso si la imagen no está disponible
+    """
     try:
         image = pygame.image.load(image_path).convert_alpha()
         street_images["patron_base"] = pygame.transform.scale(image, (TILE_SIZE, TILE_SIZE))
@@ -77,6 +108,20 @@ def load_street_images():
 
 # ==================== PARTIDA (JUEGO) ====================
 
+"""
+Inicia y ejecuta el bucle principal del juego
+---------Parameters---------
+- ai_difficulty: Dificultad de la IA (AIDifficulty)
+- load_saved: Indica si se debe cargar una partida guardada (bool, por defecto False)
+---------Returns---------
+- None
+
+Primero se inicializa Pygame y se configuran la ventana y el reloj del juego
+Luego se cargan las imágenes necesarias y se inicializan los sistemas del juego (mundo, courier, IA, clima, HUD, pedidos)
+Se entra en el bucle principal donde se manejan eventos, actualizaciones de estado y renderizado
+El bucle continúa hasta que se cumple una condición de fin de juego (tiempo agotado, reputación baja, meta alcanzada) o el jugador cierra la ventana
+Al finalizar, se cierra Pygame y se sale del programa
+"""
 def start_game(ai_difficulty: AIDifficulty, load_saved: bool = False):
     # Inicialización de Pygame
     pygame.init()
@@ -174,17 +219,17 @@ def start_game(ai_difficulty: AIDifficulty, load_saved: bool = False):
 
     # Generar pedidos si no hay JSON
     if not jobs_data or not jobs_data.get("data"):
-        print("📦 Forzando generación de nuevos pedidos...")
+        print("Forzando generación de nuevos pedidos...")
         jobs_manager.generate_random_jobs(game_world, num_jobs=10)
 
-        print("🔍 VERIFICANDO PEDIDOS GENERADOS:")
+        print("VERIFICANDO PEDIDOS GENERADOS:")
         print(f"   Total de pedidos: {len(jobs_manager.all_jobs)}")
         print(f"   Pedidos disponibles: {len(jobs_manager.available_jobs)}")
         for i, job in enumerate(jobs_manager.all_jobs):
             print(f"   {i+1}. {job.id} - Pos: {job.pickup_pos} - Release: {job.release_time}s - Estado: {job.state}")
     else:
-        print("📦 Usando pedidos del JSON")
-        print("🔍 VERIFICANDO PEDIDOS DEL JSON:")
+        print("Usando pedidos del JSON")
+        print("VERIFICANDO PEDIDOS DEL JSON:")
         print(f"   Total de pedidos: {len(jobs_manager.all_jobs)}")
         print(f"   Pedidos disponibles: {len(jobs_manager.available_jobs)}")
 
@@ -203,7 +248,7 @@ def start_game(ai_difficulty: AIDifficulty, load_saved: bool = False):
             if loaded_data:
                 courier.load_state(loaded_data.get("courier", {}))
                 elapsed_time = loaded_data.get("elapsed_time", 0.0)
-                print("📂 Partida cargada desde slot1.sav (solo jugador humano).")
+                print("Partida cargada desde slot1.sav (solo jugador humano).")
                 notifier.success("Partida cargada")
             else:
                 print("Archivo de guardado vacío o corrupto.")
@@ -289,12 +334,12 @@ def start_game(ai_difficulty: AIDifficulty, load_saved: bool = False):
                         for job in nearby_jobs:
                             if job.is_at_pickup(courier_pos):
                                 if jobs_manager.try_pickup_job(job.id, courier_pos, courier.inventory, elapsed_time):
-                                    print(f"✅ Pedido {job.id} recogido! +${job.payout}")
+                                    print(f"Pedido {job.id} recogido! +${job.payout}")
                                     notifier.success(f"Pedido {job.id} recogido (+${job.payout:.0f})")
                                     pickup_success = True
                                     break
                         if not pickup_success:
-                            print("❌ No hay pedidos para recoger desde esta posición")
+                            print("No hay pedidos para recoger desde esta posición")
                             notifier.warn("No hay pedidos para recoger aquí")
                     except Exception as e:
                         print(f"Error en recogida: {e}")
@@ -309,7 +354,7 @@ def start_game(ai_difficulty: AIDifficulty, load_saved: bool = False):
                             mult = courier.get_reputation_multiplier()
                             base_payout = delivered_job.payout * mult
                             if mult > 1.0:
-                                print("💰 ¡Bono de reputación aplicado! +5%")
+                                print("¡Bono de reputación aplicado! +5%")
                                 notifier.info("Bono +5% por reputación ≥90")
 
                             courier.income += base_payout
@@ -318,11 +363,11 @@ def start_game(ai_difficulty: AIDifficulty, load_saved: bool = False):
                             new_rep_below_20 = courier.update_reputation(reputation_change)
                             if reputation_change != 0:
                                 signo = "+" if reputation_change > 0 else ""
-                                print(f"⭐ Reputación {signo}{reputation_change} (total: {courier.reputation})")
+                                print(f"Reputación {signo}{reputation_change} (total: {courier.reputation})")
                                 col = (120, 255, 120) if reputation_change > 0 else (255, 160, 160)
                                 notifier.add(f"Reputación {signo}{reputation_change} (total {courier.reputation})", color=col)
 
-                            print(f"🎉 Pedido {delivered_job.id} entregado! +${base_payout:.0f}")
+                            print(f"Pedido {delivered_job.id} entregado! +${base_payout:.0f}")
                             notifier.success(f"Entregado {delivered_job.id} (+${base_payout:.0f})")
 
                             if new_rep_below_20:
@@ -342,7 +387,7 @@ def start_game(ai_difficulty: AIDifficulty, load_saved: bool = False):
                                     res=type("R", (), {"status": "expired"})()
                                 )
                                 new_rep_below_20 = courier.update_reputation(delta)
-                                print("⛔ Pedido expirado en inventario. Reputación -6 (total: {})".format(courier.reputation))
+                                print("Pedido expirado en inventario. Reputación -6 (total: {})".format(courier.reputation))
                                 notifier.error("Pedido expirado en inventario (-6 rep)")
                                 if new_rep_below_20:
                                     print("Game Over: reputación muy baja.")
@@ -356,10 +401,10 @@ def start_game(ai_difficulty: AIDifficulty, load_saved: bool = False):
                                     notifier.error("Derrota: reputación < 20 — partida guardada")
                                     running = False
                             else:
-                                print("❌ No estás en posición de entrega")
+                                print("No estás en posición de entrega")
                                 notifier.warn("No estás en el dropoff")
                     else:
-                        print("❌ No tienes pedidos para entregar")
+                        print("No tienes pedidos para entregar")
                         notifier.warn("Inventario vacío")
 
                 elif event.key == pygame.K_TAB:  # Navegar inventario
@@ -378,7 +423,7 @@ def start_game(ai_difficulty: AIDifficulty, load_saved: bool = False):
                         cancelled_job = courier.inventory.remove_current_job()
                         delta = ReputationSystem.for_cancel()  # -4
                         new_rep_below_20 = courier.update_reputation(delta)
-                        print(f"⚠️ Pedido {cancelled_job.id} cancelado. Reputación {delta} (total: {courier.reputation})")
+                        print(f"Pedido {cancelled_job.id} cancelado. Reputación {delta} (total: {courier.reputation})")
                         notifier.warn(f"Cancelado {cancelled_job.id} ({delta} rep)")
                         if new_rep_below_20:
                             print("Game Over: reputación muy baja.")
@@ -396,22 +441,22 @@ def start_game(ai_difficulty: AIDifficulty, load_saved: bool = False):
                 elif event.key == pygame.K_F1:  # Prioridad
                     if not courier.inventory.is_empty():
                         courier.inventory.apply_sort("priority")
-                        print("📊 Inventario reordenado por PRIORIDAD")
+                        print("Inventario reordenado por PRIORIDAD")
                         notifier.info("Ordenado por PRIORIDAD")
                 elif event.key == pygame.K_F2:  # Deadline
                     if not courier.inventory.is_empty():
                         courier.inventory.apply_sort("deadline", current_game_time=elapsed_time)
-                        print("⏰ Inventario reordenado por DEADLINE")
+                        print("Inventario reordenado por DEADLINE")
                         notifier.info("Ordenado por DEADLINE")
                 elif event.key == pygame.K_F3:  # Pago
                     if not courier.inventory.is_empty():
                         courier.inventory.apply_sort("payout")
-                        print("💰 Inventario reordenado por PAGO")
+                        print("Inventario reordenado por PAGO")
                         notifier.info("Ordenado por PAGO")
                 elif event.key == pygame.K_F4:  # Original
                     if not courier.inventory.is_empty():
                         courier.inventory.apply_sort("original")
-                        print("🔄 Orden ORIGINAL restaurada")
+                        print("Orden ORIGINAL restaurada")
                         notifier.info("Orden ORIGINAL")
 
                 # DEBUG: mostrar ruta IA
@@ -425,7 +470,7 @@ def start_game(ai_difficulty: AIDifficulty, load_saved: bool = False):
                 elif event.key == pygame.K_s and pygame.key.get_mods() & pygame.KMOD_CTRL:
                     data_to_save = {"courier": courier.get_save_state(), "elapsed_time": elapsed_time}
                     save_slot("slot1.sav", data_to_save)
-                    print("💾 Partida guardada.")
+                    print("Partida guardada.")
                     notifier.success("Partida guardada")
 
                 elif event.key == pygame.K_l and pygame.key.get_mods() & pygame.KMOD_CTRL:
@@ -434,7 +479,7 @@ def start_game(ai_difficulty: AIDifficulty, load_saved: bool = False):
                         if loaded_data:
                             courier.load_state(loaded_data.get("courier", {}))
                             elapsed_time = loaded_data.get("elapsed_time", 0.0)
-                            print("📂 Partida cargada.")
+                            print("Partida cargada.")
                             notifier.success("Partida cargada")
                         else:
                             print("Archivo de guardado vacío o corrupto.")

@@ -1,7 +1,17 @@
+"""
+import pygame es la librería principal para gráficos y manejo de eventos
+import os es para manejar rutas de archivos
+"""
 import pygame
 import os
 
+"""
+La clase HUD gestiona la interfaz de usuario del juego, mostrando información relevante como
+tiempo restante, ingresos, estado del courier, clima, y controles disponibles
 
+Tiene metodos de ayuda para renderizar texto, barras de estado, divisores, y tarjetas de pedidos además de
+manejar la presentación de la dificultad de la IA
+"""
 class HUD:
     PAD = 20
     VR_GAP = 6
@@ -15,6 +25,20 @@ class HUD:
     CARD_PAD = 10
     CARD_BG = (255, 255, 255, 12)
 
+    """
+    Inicializa la HUD con el área de rectángulo dada, altura de pantalla, tamaño de tile y dificultad IA opcional
+    ---------Parameters---------    
+    rect_area : pygame.Rect
+        Área rectangular donde se dibuja la HUD
+    screen_height : int
+        Altura de la pantalla del juego
+    tile_size : int
+        Tamaño de cada tile en píxeles
+    ai_difficulty : Optional[Union[str, Enum]], optional
+        Dificultad de la IA, por defecto None
+    ---------Returns---------
+        __init__: Inicializa la instancia de HUD con los parámetros dados
+    """
     def __init__(self, rect_area, screen_height, tile_size, ai_difficulty=None):
         self.rect = rect_area
         self.screen_height = screen_height
@@ -64,6 +88,33 @@ class HUD:
             "Ctrl+L: Cargar",
         ]
 
+    """
+    Métodos de ayuda para renderizar texto, divisores, tarjetas de pedidos, y manejar la dificultad IA
+    ---------Parameters---------
+    surf : pygame.Surface
+        Superficie donde se dibuja el texto o elementos gráficos
+    text : str
+        Texto a renderizar
+    font : pygame.font.Font
+        Fuente a utilizar para renderizar el texto
+    col : Tuple[int, int, int]
+        Color del texto en formato RGB
+    x : int
+        Coordenada X donde se dibuja el texto
+    y : int
+        Coordenada Y donde se dibuja el texto
+    align : str, optional
+        Alineación del texto ("left", "center", "right"), por defecto "left
+    ---------Returns---------
+        _blit: Dibuja el texto en la superficie dada y devuelve la altura del texto renderizado
+        _div: Dibuja una línea divisoria en la superficie dada y devuelve su altura 
+        _fmt_secs: Formatea segundos como cadena MM:SS
+        _draw_priority_badge: Dibuja una insignia de prioridad en la superficie dada y devuelve su altura
+        _draw_footer: Dibuja el pie de página con controles y sistema en la superficie dada y devuelve la coordenada Y final
+        _footer_with_autofit: Dibuja el pie de página adaptándose al espacio disponible y devuelve la coordenada Y final
+        _draw_job_card: Dibuja una tarjeta de pedido en la superficie dada y devuelve la coordenada Y final
+        _difficulty_label_and_color: Devuelve el texto y color para la dificultad de la IA
+    """
     def _font(self, size):
         try:
             return pygame.font.Font(os.path.join("fonts", "RussoOne-Regular.ttf"), size)
@@ -89,6 +140,14 @@ class HUD:
         return 1
 
     # --------- helper para formatear segs ---------
+    """
+    Formatea segundos como cadena MM:SS
+    ---------Parameters---------
+    secs : float
+        Segundos a formatear
+    ---------Returns---------
+        _fmt_secs: Devuelve una cadena formateada como MM:SS
+    """
     def _fmt_secs(self, secs: float) -> str:
         secs = max(0, int(secs))
         m = secs // 60
@@ -96,6 +155,20 @@ class HUD:
         return f"{m:02d}:{s:02d}"
 
     # --------- badge de prioridad en la card ---------
+    """
+    Dibuja una insignia de prioridad en la superficie dada y devuelve su altura
+    ---------Parameters---------
+    screen : pygame.Surface
+        Superficie donde se dibuja la insignia
+    x : int 
+        Coordenada X donde se dibuja la insignia
+    y : int 
+        Coordenada Y donde se dibuja la insignia
+    level : int
+        Nivel de prioridad (0 bajo, 1 medio, 2 alto)
+    ---------Returns---------   
+        _draw_priority_badge: Dibuja la insignia y devuelve su altura
+    """
     def _draw_priority_badge(self, screen, x, y, level: int):
         # colores suaves por nivel (0 bajo, 1 medio, 2 alto)
         if level >= 2:
@@ -118,6 +191,26 @@ class HUD:
         screen.blit(badge, (x, y))
         return h
 
+    """
+    Dibuja el pie de página con controles y sistema en la superficie dada y devuelve la coordenada Y final
+    ---------Parameters---------
+    screen : pygame.Surface
+        Superficie donde se dibuja el pie de página
+    x : int    
+        Coordenada X donde se dibuja el pie de página
+    bottom : int    
+        Coordenada Y inferior donde se dibuja el pie de página
+    contextual : Optional[str]  
+        Mensaje contextual opcional para mostrar en el pie de página
+    f_body : pygame.font.Font   
+        Fuente a utilizar para el cuerpo del pie de página
+    gap_line : int
+        Espacio entre líneas en el pie de página
+    sec_gap : int   
+        Espacio entre secciones en el pie de página
+    ---------Returns---------   
+        _draw_footer: Devuelve la coordenada Y final después de dibujar el pie de página
+    """
     def _draw_footer(self, screen, x, bottom, contextual, f_body, gap_line, sec_gap):
         lh = f_body.get_linesize()
         y = bottom
@@ -151,6 +244,22 @@ class HUD:
 
         return y
 
+    """
+    Dibuja el pie de página adaptándose al espacio disponible y devuelve la coordenada Y final
+    ---------Parameters---------
+    screen : pygame.Surface
+        Superficie donde se dibuja el pie de página
+    x : int    
+        Coordenada X donde se dibuja el pie de página
+    bottom : int    
+        Coordenada Y inferior donde se dibuja el pie de página     
+    top_limit : int
+        Límite superior para evitar sobreposición con contenido principal
+    contextual : Optional[str]  
+        Mensaje contextual opcional para mostrar en el pie de página
+    ---------Returns---------
+        _footer_with_autofit: Devuelve la coordenada Y final después de dibujar el pie de página
+    """
     def _footer_with_autofit(self, screen, x, bottom, top_limit, contextual):
         min_gap = 12
         top = self._draw_footer(
@@ -167,6 +276,24 @@ class HUD:
             )
         return top
 
+    """
+    Dibuja una tarjeta de pedido en la superficie dada y devuelve la coordenada Y final
+    ---------Parameters---------
+    screen : pygame.Surface
+        Superficie donde se dibuja la tarjeta
+    x : int
+        Coordenada X donde se dibuja la tarjeta
+    y : int
+        Coordenada Y donde se dibuja la tarjeta
+    w : int
+        Ancho de la tarjeta
+    job : Any
+        Objeto de pedido con atributos id, payout, priority y método get_time_until_deadline
+    current_game_time : Optional[float], optional
+        Tiempo actual del juego para calcular el tiempo restante, por defecto None
+    ---------Returns---------   
+        _draw_job_card: Devuelve la coordenada Y final después de dibujar la tarjeta de pedido
+    """
     def _draw_job_card(self, screen, x, y, w, job, current_game_time=None):
         card_h = self.CARD_H_MIN
         card_rect = pygame.Rect(x, y, w, card_h)
@@ -210,6 +337,12 @@ class HUD:
         return card_rect.bottom
 
     # --------- Dificultad IA: label y color ---------
+    """
+    Devuelve (texto_label, color) para la dificultad de la IA.
+    Soporta tanto Enum AIDifficulty como strings.
+    ---------Returns---------
+        _difficulty_label_and_color: Devuelve el texto y color para la dificultad de la IA
+    """
     def _difficulty_label_and_color(self):
         """
         Devuelve (texto_label, color) para la dificultad de la IA.
@@ -239,6 +372,32 @@ class HUD:
         else:
             return name, self.subtx
 
+    """
+    Dibuja la HUD completa en la superficie dada con la información del courier, clima, tiempo, etc.
+    ---------Parameters---------
+    screen : pygame.Surface
+        Superficie donde se dibuja la HUD
+    courier : Any
+        Objeto courier con atributos como x, y, stamina, income, reputation, packages_delivered
+    weather_condition : str 
+        Condición climática actual (no usada en este método)
+    speed_multiplier : float    
+        Multiplicador de velocidad actual (no usada en este método)
+    remaining_time : float, optional    
+        Tiempo restante en segundos, por defecto 0
+    goal_income : float, optional
+        Ingreso objetivo para el nivel, por defecto 0
+    near_pickup : bool, optional    
+        Indica si el courier está cerca de un punto de recogida, por defecto False
+    near_dropoff : bool, optional
+        Indica si el courier está cerca de un punto de entrega, por defecto False
+    current_game_time : Optional[float], optional
+        Tiempo actual del juego para calcular tiempos restantes, por defecto None
+    ai_courier : Optional[Any], optional
+        Objeto courier de la IA (CPU) para mostrar su estado, por defecto None
+    ---------Returns---------   
+        draw: Dibuja la HUD completa en la superficie dada
+    """
     def draw(self, screen, courier, weather_condition, speed_multiplier,
              remaining_time=0, goal_income=0, near_pickup=False, near_dropoff=False,
              current_game_time=None, ai_courier=None):

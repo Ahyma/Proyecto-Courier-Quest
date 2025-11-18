@@ -1,10 +1,19 @@
+"""
+import pygame es utilizado para representar un trabajo (job) en el juego Courier Quest
+from datetime import datetime, timedelta se utiliza para manejar tiempos y fechas, como deadlines y release times
+""" 
 import pygame
 from datetime import datetime, timedelta
 
 class Job:
-    """
-    Representa un pedido individual en el juego.
-    """
+    """Representa un pedido individual en el juego"""
+
+    """ 
+    Inicializa un trabajo (job) con los datos proporcionados en job_data y la hora de inicio del juego
+    Parámetros:
+    - job_data: Diccionario con los datos del trabajo (id, pickup, dropoff, payout, weight, priority, release_time, deadline)
+    - game_start_time: Objeto datetime que representa el momento en que comenzó el juego 
+    """ 
     def __init__(self, job_data, game_start_time):
         self.id = job_data.get('id', 'UNKNOWN')
         self.pickup_pos = tuple(job_data.get('pickup', [0, 0]))
@@ -31,6 +40,10 @@ class Job:
         self.game_start_time = game_start_time
 
     # ---------- Helpers de tiempo ----------
+    """ 
+    _now_dt: Convierte current_game_time (segundos desde inicio) a datetime
+    time_until_deadline: Devuelve segundos restantes hasta el deadline (>=0). Si no hay deadline, inf
+    """ 
     def _now_dt(self, current_game_time: float) -> datetime:
         return self.game_start_time + timedelta(seconds=current_game_time)
 
@@ -42,6 +55,16 @@ class Job:
         return max(0.0, left)
 
     # ---------- Ciclo de vida ----------
+    """ 
+    is_available: Disponible si pasó su release_time y no está tomada/entregada/cancelada/expirada
+    pickup: Marca el pedido como recogido
+    deliver: Marca el pedido como entregado (si no expiró)
+    cancel: Cancela el pedido si está disponible o pendiente
+    is_expired: Expira si hay deadline y ya pasó, mientras no esté entregado/cancelado
+    is_close_to_pickup: Verifica si el courier está cerca del punto de recogida
+    is_at_pickup: Verifica si el courier está en el punto de recogida
+    is_at_dropoff: Verifica si el courier está en el punto de entrega
+    """ 
     def is_available(self, current_game_time: float) -> bool:
         """Disponible si pasó su release_time y no está tomada/entregada/cancelada/expirada."""
         if self.state in ("delivered", "cancelled", "expired", "picked_up"):
@@ -100,6 +123,17 @@ class Job:
         return (abs(cx - dx) + abs(cy - dy)) <= 1
 
     # ---------- Reputación por puntualidad ----------
+    """ 
+    calculate_reputation_change: Calcula el cambio de reputación basado en la puntualidad de la entrega
+
+    Primero verifica si el trabajo fue entregado y si tiene pickup_time y deadline válidos
+    Luego calcula la duración real desde el pickup hasta la entrega:
+    - Si la entrega fue ≥20% antes del tiempo previsto, +5 puntos
+    - Si la entrega fue a tiempo, +3 puntos
+    - Si la entrega fue ≤30 segundos tarde, -2 puntos
+    - Si la entrega fue entre 31 y 120 segundos tarde, -5 puntos
+    - Si la entrega fue >120 segundos tarde, -10 puntos
+    """ 
     def calculate_reputation_change(self) -> int:
         """
         Usa la tabla:
@@ -137,6 +171,14 @@ class Job:
         return -10
 
     # ---------- Marcadores (visual) ----------
+    """ 
+    draw_markers: Dibuja marcadores en la pantalla para el trabajo según su estado y la posición del courier
+    Primero verifica el estado del trabajo:
+    - Si está "picked_up", dibuja un rectángulo verde en la posición de entrega (dropoff)
+    - Si está "available" o "pending" y el courier está cerca del punto de recogida (pickup), dibuja un rectángulo amarillo en la posición de recogida (pickup)
+
+    __str__: Devuelve una representación en cadena del trabajo, mostrando su id, estado, pago y peso
+    """ 
     def draw_markers(self, screen, TILE_SIZE, courier_pos):
         if self.state == "picked_up":
             rx, ry = self.dropoff_pos

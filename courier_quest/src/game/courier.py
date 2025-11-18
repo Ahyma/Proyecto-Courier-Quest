@@ -1,3 +1,7 @@
+"""
+import pygame es para la representación gráfica del courier en el juego
+from .inventory import Inventory gestiona el inventario del courier
+"""
 import pygame
 from .inventory import Inventory
 
@@ -21,6 +25,10 @@ class Courier:
         # Racha de entregas sin penalización
         self._clean_streak = 0  # cuenta entregas con delta de reputación >= 0
 
+    """
+    @property es un decorador que convierte el método en una propiedad de solo lectura
+    o sea, se puede acceder como un atributo pero no se puede modificar directamente
+    """
     @property
     def current_weight(self):
         return self.inventory.current_weight
@@ -34,6 +42,34 @@ class Courier:
         else:
             return "normal"
 
+    """
+    Mueve el courier un paso en la cuadrícula considerando varios modificadores (clima, peso, reputación, resistencia)
+
+    ---------Parameters---------
+    dx : int
+        Desplazamiento en x (puede ser negativo)
+    dy : int
+        Desplazamiento en y (puede ser negativo)
+
+    stamina_cost_modifier : float
+        Modificador para el coste de stamina 
+    
+    surface_weight : float
+        Peso del terreno actual (afecta a la velocidad)
+
+    climate_mult : float
+        Multiplicador de velocidad según el clima actual
+
+    game_world :
+        Objeto que expone is_walkable(x: int, y: int) -> bool para
+        verificar si la nueva posición es transitable.
+        Si se proporciona, se usa game_world.is_walkable para evitar que el courier pase encima de edificios o de obstáculos
+
+    ---------Returns---------
+        True si el movimiento fue exitoso, False si no (por ejemplo, terreno no transitable)
+        True si se aplicó el movimiento (x, y actualizados)
+        False si el movimiento fue bloqueado (por ejemplo, tile no transitable)
+    """
     def move(self, dx, dy, stamina_cost_modifier=1.0, surface_weight=1.0, climate_mult=1.0, game_world=None):
         Mpeso = max(0.8, 1 - 0.03 * self.current_weight)
         Mrep = 1.03 if self.reputation >= 90 else 1.0
@@ -71,6 +107,22 @@ class Courier:
         return True
 
     # ---------- Inventario ----------
+    """
+    Métodos para gestionar trabajos (jobs) en el inventario del courier
+
+    ---------Parameters---------
+    job : Job
+        Objeto que representa un trabajo a recoger o entregar
+    ---------Returns---------
+        can_pickup_job: True si el trabajo puede ser recogido (hay espacio en inventario)
+        pickup_job: True si el trabajo fue recogido exitosamente y añadido al inventario
+        deliver_current_job: El trabajo entregado si hubo uno, None si no había trabajo actual
+        get_current_job: El trabajo actual en el inventario, None si no hay ninguno
+        next_job: Cambia al siguiente trabajo en el inventario y lo devuelve
+        previous_job: Cambia al trabajo anterior en el inventario y lo devuelve
+        has_jobs: True si hay trabajos en el inventario, False si está vacío
+        get_job_count: Número total de trabajos en el inventario
+    """
     def can_pickup_job(self, job):
         return self.inventory.can_add_job(job)
 
@@ -99,6 +151,15 @@ class Courier:
         return self.inventory.get_job_count()
 
     # ---------- Reputación / Racha ----------
+    """
+    Métodos para gestionar la reputación del courier y su racha de entregas sin penalización
+    ---------Parameters---------
+    delta : int
+        Cambio en la reputación (puede ser positivo o negativo)
+    ---------Returns---------
+        update_reputation: True si la reputación cae por debajo de 20 (derrota)
+        get_reputation_multiplier: Multiplicador de reputación actual (1.05 si reputación >= 90, 1.0 si no)
+    """
     def update_reputation(self, delta: int) -> bool:
         """
         Aplica delta y gestiona racha:
@@ -118,7 +179,7 @@ class Courier:
         if self._clean_streak >= 3:
             self.reputation = min(100, self.reputation + 2)
             self._clean_streak = 0
-            print("🔥 Racha de 3 entregas sin penalización: reputación +2")
+            print("Racha de 3 entregas sin penalización: reputación +2")
 
         return self.reputation < 20
 
@@ -126,6 +187,12 @@ class Courier:
         return 1.05 if self.reputation >= 90 else 1.0
 
     # ---------- Save/Load ----------
+    """
+    Métodos para guardar y cargar el estado del courier
+    ---------Returns---------
+        get_save_state: Diccionario con el estado actual del courier
+        load_state: Carga el estado del courier desde un diccionario
+    """
     def get_save_state(self):
         return {
             "x": self.x,
@@ -148,6 +215,18 @@ class Courier:
         self._clean_streak = state.get("_clean_streak", 0)
 
     # ---------- Render ----------
+    """
+    Métodos para renderizar el courier en pantalla y obtener información de estado
+    ---------Parameters---------
+    screen : pygame.Surface
+        Superficie donde se dibuja el courier
+    TILE_SIZE : int
+        Tamaño de cada tile en píxeles
+    ---------Returns---------
+        draw: Dibuja el courier en la pantalla en su posición actual
+        get_status_info: Devuelve un diccionario con información de estado del courier 
+        __str__: Representación en cadena del estado del courier
+    """
     def draw(self, screen, TILE_SIZE):
         if self.image:
             screen.blit(self.image, (self.x * TILE_SIZE, self.y * TILE_SIZE))

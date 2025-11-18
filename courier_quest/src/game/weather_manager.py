@@ -1,9 +1,16 @@
+"""
+import random para selecciones aleatorias y temporizadores, como en ráfagas de clima
+"""
 import random
 
 class WeatherManager:
     """
     Gestiona el clima con cadena de Markov, ráfagas 45–60 s e intensidad (0–1).
     Incluye transición suave (3–5 s) interpolando multiplicadores.
+
+
+    Primero carga datos de clima desde un diccionario (probabilidades de transición, estado inicial, etc.)
+    Luego tiene métodos para actualizar el estado del clima con el tiempo, calcular multiplicadores efectivos y obtener el estado actual del clima
     """
     def __init__(self, weather_data):
         self.data = weather_data.get("data", {})
@@ -105,6 +112,16 @@ class WeatherManager:
             self.time_since_last_change = 0.0
             self._reset_burst_timer()
 
+    """
+    Actualiza timers y gestiona el inicio/fin de transiciones
+
+    parametros
+    - delta_time: tiempo transcurrido desde la última actualización (float)
+    
+    primero incrementa el tiempo desde el último cambio con delta_time
+    luego si está en transición, incrementa el timer de transición y verifica si terminó
+    finalmente, si el tiempo desde el último cambio excede el temporizador de ráfaga y no está en transición, selecciona la siguiente condición
+    """
     def update(self, delta_time):
         """Actualiza timers y gestiona el inicio/fin de transiciones."""
         self.time_since_last_change += delta_time
@@ -126,6 +143,16 @@ class WeatherManager:
     # --------------------------
     # Multiplicadores efectivos
     # --------------------------
+    """
+    Interpolación lineal entre a y b según progreso de transición
+
+    parametros
+    - a: valor inicial (float)
+    - b: valor final (float)
+    primero verifica si no está en transición, en cuyo caso retorna b
+    luego calcula el progreso t como el ratio del timer de transición sobre la duración, limitado entre 0 y 1
+    finalmente retorna el valor interpolado entre a y b usando t
+    """
     def _interp(self, a, b):
         """Interpolación lineal entre a y b según progreso de transición."""
         if not self.transitioning:
@@ -133,6 +160,7 @@ class WeatherManager:
         t = self._clamp(self.transition_timer / self.transition_duration, 0.0, 1.0)
         return a + (b - a) * t
 
+    """ Efecto de la intensidad sobre la velocidad base """
     def _effective_speed_with_intensity(self, base_speed, intensity):
         """
         Aplica penalización por intensidad a la velocidad.
@@ -142,6 +170,7 @@ class WeatherManager:
         eff = base_speed * (1.0 - 0.15 * self._clamp(intensity, 0.0, 1.0))
         return self._clamp(eff, 0.45, 1.0)
 
+    """ Efecto de la intensidad sobre el costo de resistencia """
     def _effective_stamina_with_intensity(self, base_cost, intensity):
         """
         Aumenta el costo de resistencia con la intensidad.
@@ -150,6 +179,7 @@ class WeatherManager:
         # Hasta 70% extra de costo a máxima intensidad
         return base_cost * (1.0 + 0.70 * self._clamp(intensity, 0.0, 1.0))
 
+    """ get_speed_multiplier es para obtener el multiplicador de velocidad actual considerando la transición e intensidad """
     def get_speed_multiplier(self):
         if self.transitioning:
             base = self._interp(self.initial_speed_mult, self.final_speed_mult)
@@ -159,6 +189,7 @@ class WeatherManager:
             base = self._base_speed(self.current_condition)
             return self._effective_speed_with_intensity(base, self.current_intensity)
 
+    """ get_stamina_cost_multiplier es para obtener el multiplicador de costo de resistencia actual considerando la transición e intensidad """ 
     def get_stamina_cost_multiplier(self):
         if self.transitioning:
             base = self._interp(self.initial_stamina_cost, self.final_stamina_cost)

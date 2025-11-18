@@ -1,3 +1,8 @@
+"""
+import pygame es para manejar gráficos y efectos visuales
+import os es para manejar rutas de archivos y directorios
+import random es para selecciones aleatorias y temporizadores
+"""
 import pygame
 import os
 import random
@@ -9,12 +14,25 @@ IMAGES_DIR = os.path.normpath(os.path.join(BASE_DIR, "..", "images"))
 
 class WeatherVisuals:
     """
-    Efectos visuales de clima.
+    Gestiona y dibuja los efectos visuales de clima sobre la pantalla.
 
-    Usa 'intensity' (0–1) para escalar cantidad de partículas y opacidad de capas
-    (niebla/calor). Si no se pasa la intensidad, usa 1.0 por compatibilidad.
+    Usa la condición climática actual (ej. 'rain', 'fog', 'heat') y un parámetro
+    de intensidad (0–1) para:
+      - Crear y actualizar partículas (lluvia, nieve, viento, nubes).
+      - Dibujar capas semitransparentes para niebla y calor.
     """
     def __init__(self, screen_size, tile_size):
+        """
+        Inicializa el sistema de efectos climáticos.
+
+        Parameters
+        ----------
+        screen_size : tuple[int, int]
+            Tamaño de la ventana de juego en píxeles, como (ancho, alto).
+        tile_size : int
+            Tamaño de cada tile en píxeles. Se usa para escalar las partículas
+            relativas al mapa (gotas, copos, nubes, etc.).
+        """
         self.screen_width, self.screen_height = screen_size
         self.tile_size = tile_size
         self.current_condition = "clear"
@@ -34,7 +52,12 @@ class WeatherVisuals:
         self.load_images()
 
     def load_images(self):
-        """Carga y escala las imágenes para las partículas climáticas."""
+        """
+        Carga y escala las imágenes de partículas y capas de clima.
+
+        Si alguna imagen no se puede cargar, se imprime un mensaje en consola
+        y se usa un fallback dibujado con primitivas de pygame (líneas, círculos, etc.).
+        """
         base_path = IMAGES_DIR  # antes: "images"
 
         # Tamaños relativos a TILE_SIZE
@@ -45,6 +68,12 @@ class WeatherVisuals:
         cloud_size = (self.tile_size * 3, int(self.tile_size * 1.5))
 
         def safe_load(name, size):
+            """
+            Intenta cargar una imagen desde disco y escalarla al tamaño dado.
+
+            Si falla (archivo no encontrado o error de pygame), devuelve None
+            y deja que el código use un fallback dibujado.
+            """
             full_path = os.path.join(base_path, name)
             try:
                 img = pygame.image.load(full_path).convert_alpha()
@@ -65,7 +94,23 @@ class WeatherVisuals:
         self.effects["heat"]["surface"] = pygame.Surface((self.screen_width, self.screen_height), pygame.SRCALPHA)
 
     def _create_particles(self, effect_name, num_particles, speed_min, speed_max, direction="down"):
-        """Crea partículas iniciales para un efecto dado."""
+        """
+        Crea el conjunto inicial de partículas para un efecto climático.
+
+        Parameters
+        ----------
+        effect_name : str
+            Clave del efecto dentro de `self.effects` (por ejemplo, 'rain', 'clouds').
+        num_particles : int
+            Número de partículas a generar para el efecto.
+        speed_min : float
+            Velocidad mínima de movimiento de cada particula.
+        speed_max : float
+            Velocidad máxima de movimiento de cada particula.
+        direction : {"down", "right"}
+            Dirección dominante del movimiento. 'down' para lluvia/nieve,
+            'right' para viento o nubes.
+        """
         self.effects[effect_name]["particles"] = []
         for _ in range(num_particles):
             if direction == "down":
@@ -81,10 +126,21 @@ class WeatherVisuals:
 
     def update(self, delta_time, current_condition, intensity=1.0):
         """
-        Actualiza partículas según condición actual.
+        Actualiza el estado interno de los efectos climáticos.
 
-        'intensity' escala cantidad de partículas y opacidad (rango 0.0–1.0).
-        Mantiene compatibilidad con llamadas antiguas (intensity por defecto=1.0).
+        Parameters
+        ----------
+        delta_time : float
+            Tiempo transcurrido desde el último frame (en segundos). Se utiliza
+            para actualizar posiciones de partículas de forma suave.
+        current_condition : str
+            Condición de clima actual (por ejemplo, 'rain', 'rain_light',
+            'storm', 'fog', 'wind', 'cold', 'clouds', 'heat').
+        intensity : float, opcional
+            Factor de intensidad entre 0.0 y 1.0 que ajusta la cantidad de
+            partículas y la opacidad de las capas (niebla/calor). Si no se
+            especifica, se usa 1.0 para mantener compatibilidad con llamadas
+            existentes.
         """
         self.current_condition = current_condition
         self.intensity = max(0.0, min(1.0, intensity))
@@ -176,6 +232,16 @@ class WeatherVisuals:
             self.effects["heat"]["alpha"] = max(target_heat_alpha, alpha - int(120 * delta_time))
 
     def draw(self, screen):
+        """
+        Dibuja todos los efectos climáticos activos sobre la superficie dada.
+
+        Parameters
+        ----------
+        screen : pygame.Surface
+            Superficie principal de la ventana de juego donde se blitean las
+            partículas (lluvia, nieve, nubes, viento) y las capas de niebla
+            y calor semitransparentes.
+        """
         # Lluvia / tormenta
         if "rain" in self.current_condition or "storm" in self.current_condition:
             key_for_image = "rain" if self.current_condition == "rain_light" else self.current_condition

@@ -1,3 +1,6 @@
+"""
+from dataclasses import dataclass es para definir estructuras de datos simples
+"""
 from dataclasses import dataclass
 
 @dataclass
@@ -21,6 +24,9 @@ class ReputationSystem:
       Derrota si reputación <20 (lo verifica el main)
     """
 
+    """
+    Es un @staticmethod que devuelve el cambio de reputación basado en el resultado de la entrega
+    """
     @staticmethod
     def for_delivery(res: DeliveryResult, base_delta=0) -> int:
         if res.status == "expired":
