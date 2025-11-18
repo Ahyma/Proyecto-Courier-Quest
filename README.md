@@ -208,17 +208,17 @@ AttributeError: 'JobsManager' object has no attribute 'try_deliver_current_job'�
 - “El nivel medio se bugea en la posicion 25,12… busquemos una solución que respete el enunciado.”
 - “Puedes indicarme de la lista qué está solucionado y qué falta?”
 - “Aca esta lo que necesito que me ayudes a hacer
-🟪 IA MEDIA — componentes técnicos
+  IA MEDIA — componentes técnicos
 Lookahead completo de 2–3 movimientos.
 Ajuste fino de los valores α, β, γ, δ, ε del score.
 Minimizar o crear una versión simple de minimax / expectimax.
-🟪 IA DIFÍCIL — núcleo avanzado
+  IA DIFÍCIL — núcleo avanzado
 Implementar A dinámico real (replanificación completa).
 Generar rutas múltiples (TSP aproximado).
 Integrar colas de prioridad para seleccionar el siguiente job.
-🟪 Competitividad general de la IA
+  Competitividad general de la IA
 Ajustar heurísticas para que la IA sea realmente competitiva.
-🟪 Análisis técnico
+  Análisis técnico
 Evaluación formal del rendimiento de la IA (tiempos, eficiencia, comparaciones).”
 - "Analiza la arquitectura completa del proyecto Courier Quest y dime cómo extenderla para agregar un jugador CPU competitivo sin romper el código existente."
 - "Valida si la clase AICourier está correctamente integrada con Courier y qué mejoras necesita para soportar heurísticas avanzadas."
