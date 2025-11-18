@@ -1,3 +1,10 @@
+""" 
+import pygame es para representar un gestor de trabajos (jobs) en el juego Courier Quest
+import random es para generar trabajos aleatorios
+from datetime import datetime, timedelta es para manejar tiempos y fechas, como deadlines y release times
+from .job import Job importa la clase Job del módulo job
+from .inventory import Inventory importa la clase Inventory del módulo inventory
+""" 
 import pygame
 import random
 from datetime import datetime, timedelta
@@ -21,16 +28,22 @@ class JobsManager:
         self.completed_jobs: list[Job] = []
 
     # ----------------------- CARGA -----------------------
+    """ 
+    _load_jobs: Carga trabajos desde jobs_data y maneja errores
+    """ 
     def _load_jobs(self, jobs_data: dict) -> list:
         jobs: list[Job] = []
         for job_data in jobs_data.get("data", []):
             try:
                 jobs.append(Job(job_data, self.game_start_time))
             except Exception as e:
-                print(f"⚠️  Job inválido saltado: {e}")
+                print(f"Job inválido saltado: {e}")
         return jobs
 
     # --------------------- CICLO JUEGO -------------------
+    """ 
+    update: Refresca la disponibilidad y expiración de trabajos según el tiempo actual
+    """ 
     def update(self, current_game_time: float, courier_pos: tuple[int, int]) -> None:
         """
         Refresca:
@@ -55,10 +68,16 @@ class JobsManager:
                     self.available_jobs.remove(j)
 
     # -------------------- BÚSQUEDAS ----------------------
+    """ 
+    get_available_jobs_nearby: Devuelve trabajos disponibles cerca de la posición del courier
+    """ 
     def get_available_jobs_nearby(self, courier_pos: tuple[int, int], max_distance: int = 3) -> list:
         return [j for j in self.available_jobs if j.is_close_to_pickup(courier_pos, max_distance)]
 
     # ----------------- Recoger / Entregar ----------------
+    """ 
+    try_pickup_job: Intenta recoger un trabajo si el courier está en el punto de recogida y el trabajo está disponible
+    """ 
     def try_pickup_job(
         self,
         job_id: str,
@@ -112,6 +131,14 @@ class JobsManager:
         return None
 
     # ----------------------- DIBUJO ----------------------
+    """ 
+    draw_job_markers: Dibuja marcadores en la pantalla para los trabajos según su estado y la posición del courier
+
+    Primero dibuja los pickups disponibles en amarillo y luego los dropoffs en curso en verde
+    Luego, para cada trabajo:
+    - Si está "picked_up", dibuja un rectángulo verde en la posición de entrega (dropoff)
+    - Si está "available" o "pending" y el courier está cerca del punto de recogida (pickup), dibuja un rectángulo amarillo en la posición de recogida (pickup)
+    """ 
     def draw_job_markers(self, screen, TILE_SIZE: int, courier_pos: tuple[int, int]) -> None:
         # Pickups disponibles (amarillo)
         for job in self.available_jobs:
@@ -131,7 +158,11 @@ class JobsManager:
                     pygame.Rect(dx * TILE_SIZE, dy * TILE_SIZE, TILE_SIZE, TILE_SIZE), 2
                 )
 
-    # ---------------------- ESTADOs ----------------------
+    # ---------------------- ESTADOS ----------------------
+    """ 
+    get_stats: Devuelve estadísticas de trabajos como total, disponibles, completados, en progreso y expirados
+    get_available_jobs_count: Devuelve la cantidad de trabajos disponibles actualmente
+    """ 
     def get_stats(self) -> dict:
         total = len(self.all_jobs)
         available = len(self.available_jobs)
@@ -150,23 +181,37 @@ class JobsManager:
         return len(self.available_jobs)
 
     # --------------- GENERADOR DE PEDIDOS ----------------
+    """ 
+    generate_random_jobs: Genera trabajos aleatorios basados en los bordes de edificios del mundo
+
+    Primero obtiene las posiciones de los bordes de edificios y calles
+    Luego, para el número solicitado de trabajos:
+    - Selecciona aleatoriamente una posición de recogida (pickup)
+    - Selecciona aleatoriamente una posición de entrega (dropoff) diferente
+    - Asigna un release_time de 0 (disponible desde el inicio)
+    - Asigna un deadline aleatorio entre 3 y 7 minutos desde el inicio del juego
+    - Asigna un pago (payout) aleatorio entre 120 y 400
+    - Asigna un peso (weight) aleatorio entre 1 y 3
+    - Asigna una prioridad aleatoria entre 0 y 2 
+    Finalmente, agrega el trabajo generado a self.all_jobs
+    """ 
     def generate_random_jobs(self, world, num_jobs: int = 15) -> None:
         building_edges = world.get_building_edges()
         street_positions = world.get_street_positions()
 
         if not building_edges:
-            print("❌ No hay bordes de edificios; usando calles como fallback.")
+            print("No hay bordes de edificios; usando calles como fallback.")
             building_edges = street_positions
 
         if not building_edges:
-            print("❌❌ No hay posiciones válidas para generar pedidos.")
+            print("No hay posiciones válidas para generar pedidos.")
             return
 
         self.all_jobs.clear()
 
         actual_num = min(num_jobs, max(0, len(building_edges) - 1))
         if actual_num < num_jobs:
-            print(f"⚠️  Reduciendo pedidos a {actual_num} (posiciones limitadas).")
+            print(f"Reduciendo pedidos a {actual_num} (posiciones limitadas).")
 
         for i in range(actual_num):
             pickup_pos = random.choice(building_edges)
@@ -191,6 +236,6 @@ class JobsManager:
 
             job = Job(job_data, self.game_start_time)
             self.all_jobs.append(job)
-            print(f"   📦 {job.id}: {pickup_pos} -> {dropoff_pos} | deadline {deadline_dt.time()}")
+            print(f"  {job.id}: {pickup_pos} -> {dropoff_pos} | deadline {deadline_dt.time()}")
 
-        print(f"✅ Generados {len(self.all_jobs)} pedidos.")
+        print(f"Generados {len(self.all_jobs)} pedidos.")

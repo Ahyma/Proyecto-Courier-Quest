@@ -1,8 +1,14 @@
 # courier_quest/src/game/notifications.py
+""" 
+import pygame para manejar gráficos y renderizado
+from fataclasses import dataclass para definir clases de datos simples
+from typing import List, Tuple para anotaciones de tipos, especialmente listas y tuplas
+""" 
 import pygame
 from dataclasses import dataclass
 from typing import List, Tuple
 
+""" es un @dataclass que representa una notificación tipo 'toast' """ 
 @dataclass
 class Toast:
     text: str
@@ -38,6 +44,14 @@ class NotificationsOverlay:
         self.anchor_y = 0
         self.screen_h = screen_height
 
+    """ 
+    Agrega una nueva notificación tipo 'toast'
+    Parámetros:
+    - text: el mensaje a mostrar
+    - color: el color del texto (RGB)
+    - duration: duración en segundos antes de desaparecer
+    - icon: opcional, un emoji o caracter para mostrar junto al texto
+    """ 
     def add(self, text: str, color=(255, 255, 255), duration: float = 2.5, icon: str | None = None):
         # Limitar cola para evitar overflow visual
         if len(self.toasts) > 10:
@@ -46,16 +60,16 @@ class NotificationsOverlay:
 
     # Atajos de semántica
     def success(self, text: str, duration: float = 2.5):
-        self.add(text, color=(120, 255, 120), duration=duration, icon="✅")
+        self.add(text, color=(120, 255, 120), duration=duration, icon="✅") #icono de chat gpt
 
     def info(self, text: str, duration: float = 2.5):
-        self.add(text, color=(200, 220, 255), duration=duration, icon="ℹ")
+        self.add(text, color=(200, 220, 255), duration=duration, icon="ℹ") #icono de chat gpt
 
     def warn(self, text: str, duration: float = 2.8):
-        self.add(text, color=(255, 220, 120), duration=duration, icon="⚠")
+        self.add(text, color=(255, 220, 120), duration=duration, icon="⚠") #icono de chat gpt
 
     def error(self, text: str, duration: float = 3.0):
-        self.add(text, color=(255, 120, 120), duration=duration, icon="⛔")
+        self.add(text, color=(255, 120, 120), duration=duration, icon="⛔") #icono de chat gpt
 
     def update(self, dt: float):
         # Consumir TTL; borrar expirados
@@ -69,7 +83,15 @@ class NotificationsOverlay:
 
     def draw(self, screen: pygame.Surface, panel_rect: pygame.Rect):
         """
-        Dibuja las tarjetas apiladas dentro del panel (HUD), arriba a la derecha.
+        Dibuja las tarjetas apiladas dentro del panel (HUD), arriba a la derecha
+
+        Primero calcula la posición de inicio (x_right, y) basada en el rectángulo del panel
+        Luego itera sobre las notificaciones en orden inverso (de más reciente a más antigua)
+        Para cada notificación:
+        - Compone el texto con el icono si existe
+        - Renderiza el texto y calcula el tamaño de la tarjeta con padding
+        - Calcula el alpha basado en el TTL restante para el efecto de fade out
+        - Dibuja la tarjeta de fondo con alpha
         """
         if not self.toasts:
             return

@@ -1,5 +1,12 @@
+""" 
+from collections import deque es utilizado para manejar el inventario del courier, permitiendo una navegación eficiente y ordenamiento de los trabajos (jobs) en el inventario.
+"""
 from collections import deque
 
+"""
+Esta clase Inventory maneja el inventario del courier, permitiendo agregar, eliminar y navegar entre trabajos (jobs).
+También soporta diferentes vistas de ordenamiento y permite aplicar un ordenamiento real basado en prioridad, fecha límite, pago o el orden original de inserción.
+"""
 class Inventory:
     """
     Maneja el inventario navegable del courier con diferentes vistas
@@ -15,6 +22,11 @@ class Inventory:
         self._last_sort_mode = None  # "priority" | "deadline" | "payout" | None
 
     # -------------------- helpers --------------------
+    """
+    Estos helpers son propiedades y métodos auxiliares para obtener el peso actual del inventario,
+    el trabajo actual y para mantener el foco en el mismo trabajo después de operaciones de ordenamiento
+    o eliminación
+    """
     @property
     def current_weight(self):
         return sum(job.weight for job in self.jobs)
@@ -25,6 +37,9 @@ class Inventory:
             return self.jobs[self.current_index]
         return None
 
+    """
+    Este metodo mantiene el foco en el mismo trabajo (job) si existe; si no, establece el índice actual a 0
+    """
     def _set_current_to(self, job_obj):
         """Mantiene el foco en el mismo job si existe; si no, index=0."""
         if not self.jobs:
@@ -39,6 +54,16 @@ class Inventory:
             self.current_index = 0
 
     # -------------------- mutadores --------------------
+    """
+    Estos métodos permiten agregar y eliminar trabajos (jobs) del inventario,
+    así como navegar entre ellos (siguiente y anterior)
+
+    can_add_job: Verifica si se puede agregar un trabajo sin exceder el peso máximo
+    add_job: Agrega un trabajo al inventario si es posible
+    remove_current_job: Elimina el trabajo actual del inventario
+    next_job: Mueve el foco al siguiente trabajo en el inventario
+    previous_job: Mueve el foco al trabajo anterior en el inventario
+    """
     def can_add_job(self, job):
         return self.current_weight + job.weight <= self.max_weight
 
@@ -81,6 +106,13 @@ class Inventory:
         return None
 
     # -------------------- vistas (para imprimir en consola si quieres) --------------------
+    """ 
+    Estos métodos devuelven listas de trabajos (jobs) ordenadas según diferentes criterios:
+    get_jobs_sorted_by_priority: Ordena por prioridad (mayor a menor)
+    get_jobs_sorted_by_deadline: Ordena por fecha límite (más cercana primero)
+    get_jobs_sorted_by_payout: Ordena por pago (mayor a menor)
+    get_jobs_sorted_by_distance: Ordena por distancia desde la posición del courier
+    """ 
     def get_jobs_sorted_by_priority(self):
         return sorted(self.jobs, key=lambda job: (-job.priority, job.id))
 
@@ -100,6 +132,13 @@ class Inventory:
         ))
 
     # -------------------- ORDENAMIENTO REAL --------------------
+    """ 
+    Este método reordena self.jobs EN SITIO según `mode` y mantiene el foco en el mismo job
+
+    Primero verifica si hay trabajos en el inventario
+    Luego guarda el trabajo actual para mantener el foco
+    Dependiendo del modo, ordena la lista de trabajos según el criterio especificado
+    """ 
     def apply_sort(self, mode, *, current_game_time=None):
         """
         Reordena self.jobs EN SITIO según `mode` y mantiene el foco en el mismo job.
@@ -139,6 +178,12 @@ class Inventory:
         self._set_current_to(current)
 
     # -------------------- utilidades --------------------
+    """ 
+    Estos métodos proporcionan utilidades adicionales para el inventario:
+    get_job_count: Devuelve el número de trabajos en el inventario
+    is_empty: Indica si el inventario está vacío
+    clear: Vacía el inventario
+    """ 
     def get_job_count(self):
         return len(self.jobs)
 

@@ -1,15 +1,26 @@
 # courier_quest/src/game/score_board.py
+"""
+import json es para manejar archivos JSON
+import os es para manejar rutas de archivos y directorios
+from datetime import datetime, timezone es para manejar timestamps en UTC (tiempo universal coordinado)
+"""
 import json, os
 from datetime import datetime, timezone
 
 # Carpeta data/ junto al paquete src/
+"""
+Aqui se configura la ruta al archivo JSON donde se guardan los puntajes
+Se asegura que la ruta sea absoluta y apunta a "data/puntajes.json"
+"""
 DATA_DIR = os.path.join(os.path.dirname(__file__), "..", "data")
 DATA_DIR = os.path.abspath(DATA_DIR)
 
 # Mantengo el mismo nombre de archivo que usabas
+"""aqui se define la ruta completa al archivo de puntajes JSON"""
 PATH = os.path.join(DATA_DIR, "puntajes.json")
 
 
+""" este metodo crea la carpeta y el archivo si no existen """
 def _ensure_file():
     """Crea la carpeta y el archivo si no existen."""
     os.makedirs(DATA_DIR, exist_ok=True)
@@ -18,7 +29,7 @@ def _ensure_file():
             # Formato nuevo: objeto con lista interna
             json.dump({"scores": []}, f, ensure_ascii=False, indent=2)
 
-
+"""este metodo lee el archivo JSON de puntajes, manejando ambos formatos (viejo y nuevo)"""
 def _read():
     """Lee el JSON tolerando el formato viejo (lista) y el nuevo ({'scores': [...]})"""
     _ensure_file()
@@ -37,7 +48,7 @@ def _read():
 
     return {"scores": []}
 
-
+"""este metodo devuelve la lista de puntajes ordenada desc por 'score' (y luego por fecha)"""
 def load_scores(limit: int | None = None):
     """
     Devuelve la lista de puntajes ordenada desc por 'score' (y luego por fecha).
@@ -52,7 +63,7 @@ def load_scores(limit: int | None = None):
     )
     return scores_sorted[:limit] if limit else scores_sorted
 
-
+"""este metodo guarda un puntaje en el archivo JSON """
 def save_score(entry: dict):
     """
     Guarda un puntaje. 'entry' puede traer:
@@ -66,6 +77,12 @@ def save_score(entry: dict):
         raise TypeError("entry debe ser un dict")
 
     # Normalización de campos
+    """
+    aqui se normalizan los campos del puntaje antes de guardarlo
+    Convierte 'score' e 'income' a float, 'reputation' a int y agrega 'timestamp' actual en UTC
+
+    normalizar es convertir los datos a un formato consistente
+    """
     normalized = {
         "score": float(entry.get("score", 0.0)),
         "income": float(entry.get("income", 0.0)),
